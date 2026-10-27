@@ -116,7 +116,7 @@
 <div class="wrap">
 <header>
   <h1>Evidence Lab</h1>
-  <span class="sub">PF edition · v4.5 · Auto citation → flexible-length card. Full context stays between the read text.</span>
+  <span class="sub">PF edition · v4.6 · Auto citation → flexible-length card. Full context stays between the read text.</span>
 </header>
 
 <!-- ============ 1. SOURCE ============ -->
@@ -283,6 +283,10 @@
   <details>
     <summary>What the debater will actually read aloud (green text only)</summary>
     <div class="readbox" id="readAloud"></div>
+  </details>
+  <details open>
+    <summary>Highlighted argument check: grounds → warrant → claim</summary>
+    <div class="readbox" id="warrantAudit" style="max-height:320px"></div>
   </details>
   <details>
     <summary>Full source snapshot (for verification — not part of the card)</summary>
@@ -1017,12 +1021,14 @@ function applyFormatToSelection(state){
   $("cardPreview").querySelectorAll("span.w[data-wi]").forEach(sp=>{
     if(range.intersectsNode(sp)){ S.fmt[+sp.dataset.wi]=state; changed++; }
   });
+  if(changed&&S.ai&&S.ai.warrantReview)S.ai.warrantReview.stale=true;
   if(changed){ setStatus("copyStatus",""); $("reviewCheck").checked=false; }
   renderAll();
 }
 
 /* ---------- checks & render ---------- */
 function editedCard(){
+  if(S.ai&&S.ai.warrantReview)S.ai.warrantReview.stale=true;
   $("reviewCheck").checked=false;
   renderAll();
 }
@@ -1040,11 +1046,12 @@ function renderAll(){
   $("citePreview").textContent=authorYY(c)+" "+bracketText(c)+(c.initials?" //"+c.initials:"");
   renderChecks();
   renderReadAloud();
+  renderWarrantAudit();
 }
 function renderReadAloud(){
- const b=excerptWordBounds(),ids=[];
- if(b)for(let i=b.from;i<=b.to;i++)if(S.fmt[i]===2)ids.push(i+1);
- $("readAloud").textContent=spokenCut(ids)||"(nothing highlighted green yet)";
+ const b=excerptWordBounds(),unitIds=[];
+ if(b)for(let i=b.from;i<=b.to;i++)if(S.fmt[i]===2)unitIds.push(i+1);
+ $("readAloud").textContent=spokenCut(unitIds)||"(nothing highlighted green yet)";
 }
 function renderChecks(){
   const c=citeValues(); const items=[];
@@ -1353,7 +1360,7 @@ function pass1Prompt(arg,chunk,total,ci){
   return "STAGE 2: Select a passage for a "+($("eventSel").value||"Public Forum")+" evidence card.\n"+
     (arg?"Test this claim, without forcing agreement: "+arg:"No claim supplied. Identify this article's strongest specific supported argument.")+
     "\nArticle part "+(ci+1)+"/"+total+". IDs are ONE-BASED [P1], [P2], etc. Return those exact integers, never zero-based offsets.\n"+
-    "Find all useful evidence for ONE coherent claim in this part, then select the span from the first useful paragraph to the last. There is NO paragraph-count limit: one paragraph is fine when sufficient; ten or more are fine when useful. The read-aloud sentences do NOT have to be consecutive. All intervening sentences and paragraphs will stay in the card as smaller unread context. Do not add unrelated paragraphs merely to lengthen a short card. Include causal warrants, data and needed qualifications, not just a headline. Do not select bylines, menus or an author bio as evidence.\n"+
+    "Find all useful evidence for ONE coherent claim in this part, then select the span from the first useful paragraph to the last. There is NO paragraph-count limit: one paragraph is fine when sufficient; ten or more are fine when useful. The read-aloud sentences do NOT have to be consecutive. All intervening sentences and paragraphs will stay in the card as smaller unread context. Do not add unrelated paragraphs merely to lengthen a short card. Include causal warrants, data and needed qualifications, not just a headline. Select the paragraph(s) that explain WHY/HOW the result follows, even if a different paragraph already states the conclusion. Follow source references into adjacent explanatory paragraphs as needed. A conclusion-only paragraph is insufficient when a nearby paragraph supplies its reasoning. Do not confuse the desired impact with its warrant. Do not select bylines, menus or an author bio as evidence.\n"+
     "The tag is one short accurate claim (aim 7-15 words). Preserve uncertainty: 'may', correlation, limits, conditions and the author's position. Do not strengthen a claim just to sound persuasive.\n"+
     "support is supports, mixed, or unsupported relative to the supplied claim. If unsupported, select the nearest passage and an honest descriptive tag; do not fabricate support. reason explains the warrant and limitations. tagKeyPhrases must be exact substrings of the tag.\n"+
     "ARTICLE DATA:\n"+body;
@@ -1436,20 +1443,58 @@ function sentenceBatches(cap){
   return chunks;
 }
 
-const ECONOMY_POLICY="Prioritize minimal spoken wording. Default to omitting the, a, an, their, its, to, and, that, which, have, has, been and other low-information words unless needed for comprehension or meaning. Telegraphic grammar is acceptable. Use both Trump and Biden rather than both the Trump and Biden administrations. Use chose (original chosen minus n), maintain and nuc where clear. United States can be highlighted as U and S. Never invent or reorder source characters. Remove redundant descriptions and verbose transitions. Do not leave a dangling despite, conjunction, punctuation or ambiguous fragment. Select useful warrants, data and impacts across multiple paragraphs; there is no paragraph limit.\nUser permits omission of uncertainty/modal words (could, may, might, would, can) from spoken highlights. Do not force them into readWords solely to retain the original hedging. They remain visible in the full unaltered source. Do not remove negations, change numerical data, fabricate attribution, or otherwise manufacture a different factual claim. Flag every selected sentence whose modal/uncertainty wording is omitted as a review warning because the spoken reading may sound stronger than the source. Do not claim any debate organization has approved the omission.\n";
+const ECONOMY_POLICY="PRIORITIES, IN ORDER: (1) source fidelity; (2) a complete source-supported argumentative chain; (3) immediately understandable spoken flow; (4) minimal words. Efficiency means the shortest COMPLETE argument, not the shortest conclusion.\nHighlight the GROUNDS (relevant fact/data), the WARRANT (the author's explanation/mechanism/assumption connecting those grounds to the claim), and the CLAIM/IMPACT. The warrant MUST be green/readWords, not merely underlineWords or in reason. The listener hears only readWords, not the tag, citation, unread context, or your explanation. Preserve who acts, what action/process occurs, how/why it changes the relevant condition, and what follows. Mechanism verbs and their objects are not filler. A list of actors plus a desired outcome is not a warrant. A connective such as because alone is not a warrant. Keep the concrete explanatory content after it. A complete sentence is fine if needed. Do not manufacture a causal link where the source supplies only association or assertion.\nExample of the distinction: selecting only 'constructively engaging ... ban treaty ... increase European agency' loses the author's connecting action. If the source explains that actors can assume a role by constructively engaging with the ban treaty, highlight enough original words to express those actors, that action/role, and the result. Never copy these illustrative words into evidence unless they occur in this source.\nDefault to omitting filler: the, a, an, their, its, to, and, that, which, have, has, been, also. BUT retain a possessive, preposition, conjunction, or connector whenever needed to express the warrant, referents, direction of causation, conditions, or an intelligible reading. Telegraphic grammar is acceptable, disconnected keywords are not. Remove repeated conclusions and duplicate warrants rather than unique explanatory steps.\nUse safe original subword reductions when clear: United States => U and S, chosen => chose, nuclear => nuc. W IDs are exact source units; ~ marks adjacent units with no original space. Select all necessary units to spell a word or valid prefix/initial. Never invent, reorder, or insert evidence.\nUser permits uncertainty/modal words such as could/may/might to be omitted from spoken highlights. They remain in the full original. Such omissions require a review warning when the reading may sound stronger. Do not remove negation or fabricate data/attribution.\nUse multiple paragraphs whenever necessary for the chain. No fixed paragraph or word quota. Keep decisive limitations and contrary evidence needed to avoid misleading meaning. If no source-stated warrant exists, do not invent one: report the gap and keep the most honest supported reading.\n";
+const WARRANT_SCHEMA=record({readWords:ids,underlineWords:ids,reason:stringType,
+ groundsWords:ids,warrantWords:ids,claimWords:ids,
+ warrantStatus:{type:'string',enum:['complete','partial','not_stated']},
+ missingReason:stringType,chainExplanation:stringType});
 function unitData(sents){return sents.map(s=>'[S'+s.id+'] '+S.words.slice(s.from,s.to+1).map((w,j)=>'[W'+(s.from+j+1)+']'+JSON.stringify(S.sourceText.slice(w.start,w.end))+(S.words[s.from+j+1]&&S.words[s.from+j+1].start===w.end?'~':' ')).join('')).join('\n');}
 function pass2Prompt(arg,batch){
- return 'Cut an extremely efficient debate card. Claim: '+arg+'\nTag: '+$('tagInput').value+'\n'+ECONOMY_POLICY+
- '\nW IDs identify exact original subword units; ~ means the next unit touches with no source space. Select every unit needed to spell the spoken word, or a safe prefix/initial. readWords are spoken; underlineWords are useful unspoken context. Return complete global one-based W ID arrays and reason. '+(batch?'A context-only batch may have no readWords.':'readWords must not be empty.')+'\nSOURCE:\n'+unitData(batch||excerptSentences());
+ return 'Cut a compact but WARRANT-COMPLETE debate card. Claim: '+arg+'\nTag: '+$('tagInput').value+'\n'+ECONOMY_POLICY+
+ '\nreadWords are spoken, underlineWords are unspoken context. Return complete global one-based W IDs and reason. '+(batch?'This is one batch; select relevant unique explanatory steps here, or empty readWords if irrelevant.':'readWords cannot be empty.')+'\nSOURCE:\n'+unitData(batch||excerptSentences());
 }
-async function finalEfficiencyReview(arg,cut){
- const selected=new Set(cut.readWords);
- const sentences=excerptSentences().filter(s=>{for(let id=s.from+1;id<=s.to+1;id++)if(selected.has(id))return true;return false;});
- const allowed=new Set(sentences.flatMap(s=>Array.from({length:s.to-s.from+1},(_,j)=>s.from+j+1)));
- const prompt='FINAL WHOLE-CARD EFFICIENCY REVIEW. Return COMPLETE revised arrays, not edits.\nClaim: '+arg+'\nTag: '+S.tag+'\nCURRENT SPOKEN TEXT: '+spokenCut(cut.readWords)+'\nCURRENT IDs: '+JSON.stringify(cut.readWords)+'\n'+ECONOMY_POLICY+
- '\nRead only the highlighted words mentally in source order. Remove every unnecessary word; repair unclear fragments with original units. Keep the causal warrant and relevant impact. Do not force whole sentences or whole paragraphs. W IDs are subword units; ~ means adjacent original units with no intervening space.\nSOURCE CONTEXT:\n'+unitData(sentences);
- const result=await structured('Final efficiency review',prompt,CUT_SCHEMA,j=>checkedCut(j,allowed));
- result.underlineWords=[...new Set([...cut.underlineWords,...result.underlineWords])].filter(id=>!result.readWords.includes(id));return result;
+function validateWarrantCut(obj,allowed,allowEmpty){
+ checkedCut(obj,allowed,allowEmpty);
+ const reads=new Set(obj.readWords);
+ for(const field of ['groundsWords','warrantWords','claimWords']){
+  if(obj[field].some(id=>!reads.has(id)))throw outputError(field+' must be selected GREEN readWords, not unread context or invented IDs.');
+  obj[field]=[...new Set(obj[field])].sort((a,b)=>a-b);
+ }
+ if(obj.warrantStatus==='complete'){
+  for(const field of ['groundsWords','warrantWords','claimWords'])if(!obj[field].length)throw outputError('A complete chain requires highlighted grounds, explanatory warrant, and claim.');
+  const warrant=spokenCut(obj.warrantWords).replace(/[^a-zA-Z\s]/g,' ').trim();
+  if(warrant.split(/\s+/).filter(Boolean).length<2)throw outputError('A warrant needs the actual explanatory phrase, not a lone connector or keyword.');
+  if(!obj.chainExplanation.trim())throw outputError('Explain how the quoted warrant links grounds to claim.');
+ }else if(!obj.missingReason.trim())throw outputError('Describe the absent or incomplete source reasoning honestly.');
+ return obj;
+}
+function auditPrompt(arg,cut,sentences,part){
+ return 'FINAL WARRANT-FIRST REVIEW'+(part?' — batch '+part:' — whole card')+'. Return COMPLETE revised arrays, not edits.\nClaim: '+arg+'\nTag: '+S.tag+
+ '\nDRAFT SPOKEN TEXT: '+spokenCut(cut.readWords)+'\nDraft W IDs: '+JSON.stringify(cut.readWords)+'\n'+ECONOMY_POLICY+
+ '\nInspect ALL provided source context, not just previously selected sentences. Restore omitted actors, action/mechanism, reasoning and outcome using the original W IDs. Then remove only genuinely redundant speech.\n'+
+ 'groundsWords, warrantWords and claimWords must each identify the relevant exact GREEN readWords. Include every unit needed to make the quoted phrase readable. warrantStatus complete means the highlighted reading itself contains a defensible source-stated connection; partial means something essential is missing; not_stated means the provided source asserts the point without explaining why. Do not mark complete merely because all three ID arrays are nonempty. chainExplanation is a brief diagnostic, NOT evidence, and may not substitute for highlighting the reasoning. missingReason is empty only for a complete chain. No invented reasoning.\nSOURCE CONTEXT:\n'+unitData(sentences);
+}
+async function finalWarrantReview(arg,cut){
+ const batches=sentenceBatches($('engineSel').value==='local'?6000:24000),parts=[];
+ for(let i=0;i<batches.length;i++){
+  setStatus('aiStatus','Final warrant review: checking grounds, reasoning and claim '+(i+1)+'/'+batches.length+'...','');
+  const sentences=batches[i],allowed=new Set(sentences.flatMap(s=>Array.from({length:s.to-s.from+1},(_,j)=>s.from+j+1)));
+  const local={...cut,readWords:cut.readWords.filter(id=>allowed.has(id))};
+  parts.push(await structured('Warrant audit '+(i+1),auditPrompt(arg,local,sentences,batches.length>1?(i+1)+'/'+batches.length:''),WARRANT_SCHEMA,j=>validateWarrantCut(j,allowed,batches.length>1)));
+ }
+ const result={readWords:[],underlineWords:[],reason:'',groundsWords:[],warrantWords:[],claimWords:[],warrantStatus:'partial',missingReason:'',chainExplanation:''};
+ for(const p of parts){for(const k of ['readWords','underlineWords','groundsWords','warrantWords','claimWords'])result[k].push(...p[k]);result.reason+=(result.reason?' ':'')+p.reason;result.chainExplanation+=(result.chainExplanation?' ':'')+p.chainExplanation;}
+ checkedCut(result);
+ for(const k of ['groundsWords','warrantWords','claimWords'])result[k]=[...new Set(result[k])].sort((a,b)=>a-b);
+ if(parts.length===1){result.warrantStatus=parts[0].warrantStatus;result.missingReason=parts[0].missingReason;}
+ else{
+  // Never claim a complete global chain solely from individually audited batches.
+  const synopsis=parts.map((p,i)=>({part:i+1,status:p.warrantStatus,missing:p.missingReason,reason:p.chainExplanation}));
+  const auditSchema=record({warrantStatus:{type:'string',enum:['complete','partial','not_stated']},chainExplanation:stringType,missingReason:stringType});
+  const global=await structured('Cross-paragraph chain check','Assess ONLY this final highlighted reading and exact diagnostic quotations. No editing or invention. Does the spoken reading contain grounds, an explanatory warrant and claim that connect across the card? Be conservative. Return complete, partial or not_stated; missingReason must explain any gap.\nClaim: '+arg+'\nTag: '+S.tag+'\nFINAL READING: '+spokenCut(result.readWords)+'\nQUOTED GROUNDS: '+spokenCut(result.groundsWords)+'\nQUOTED WARRANT: '+spokenCut(result.warrantWords)+'\nQUOTED CLAIM: '+spokenCut(result.claimWords)+'\nBatch diagnostics (not authoritative): '+JSON.stringify(synopsis),auditSchema);
+  Object.assign(result,global);
+ }
+ return validateWarrantCut(result,null,false);
 }
 function modalOmissionWarnings(cut){
  const selected=new Set(cut.readWords),warnings=[];
@@ -1458,11 +1503,21 @@ function modalOmissionWarnings(cut){
   const a=S.words[sent.from].start,b=S.words[sent.to].end,text=S.sourceText.slice(a,b);
   for(const m of text.matchAll(/\b(could|may|might|would|can|possibly|perhaps|potentially)\b/gi)){
    const start=a+m.index,end=start+m[0].length;
-   const ids=S.words.flatMap((w,i)=>w.start>=start&&w.end<=end?[i+1]:[]);
-   if(ids.some(id=>!selected.has(id)))warnings.push('Uncertainty wording omitted in paragraph '+(sent.paragraph+1)+': “'+m[0]+'”. Spoken wording may be stronger than the source; review before use.');
+   const unitIds=S.words.flatMap((w,i)=>w.start>=start&&w.end<=end?[i+1]:[]);
+   if(unitIds.some(id=>!selected.has(id)))warnings.push('Uncertainty wording omitted in paragraph '+(sent.paragraph+1)+': '+m[0]+'. Spoken wording may be stronger than the source; review.');
   }
  }
  return [...new Set(warnings)];
+}
+function renderWarrantAudit(){
+ const box=$('warrantAudit');if(!box)return;
+ box.textContent='';const a=S.ai&&S.ai.warrantReview;
+ if(!a){box.textContent='Run Analyze & cut to check whether the green text contains the grounds, warrant and claim.';return;}
+ const add=(title,text)=>{const p=document.createElement('p');p.style.margin='5px 0';const strong=document.createElement('strong');strong.textContent=title+': ';p.appendChild(strong);p.appendChild(document.createTextNode(text));box.appendChild(p);};
+ add('AI chain check',a.stale?'Out of date — highlights or card fields changed; rerun Analyze & cut.':a.warrantStatus+' — verify against the source.');
+ for(const [title,key] of [['Grounds','groundsWords'],['Warrant / reasoning','warrantWords'],['Claim / result','claimWords']])add(title,spokenCut(a[key])||'(not identified)');
+ if(a.missingReason)add('Gap',a.missingReason);
+ if(a.chainExplanation)add('AI explanation (not quoted evidence)',a.chainExplanation);
 }
 /* underline key phrases in the tag (pass 1: tagKeyPhrases) */
 function applyTagKeyPhrases(phrases){
@@ -1723,7 +1778,7 @@ async function analyze(){
     renderAll();$("verdictBox").innerHTML=snap.verdict;$("verdictBox").style.display=snap.verdictDisplay;
   };
   try{
-    diagnostic("Evidence Lab v4.5 · "+engine+" · "+selectedModel());
+    diagnostic("Evidence Lab v4.6 · "+engine+" · "+selectedModel());
     setStatus("aiStatus","Stage 1/3: locating source-stated citation information...","");
     const notes=S.citationVersion===S.sourceVersion?["Reused the completed citation lookup for this source."]:await citationStage();
     renderAll();
@@ -1765,12 +1820,13 @@ async function analyze(){
       }
       cut=checkedCut(merged);
     }
-    setStatus("aiStatus","Final efficiency pass: minimizing spoken wording across the card...","");
-    cut=await finalEfficiencyReview(arg,cut);
+    cut=await finalWarrantReview(arg,cut);
+    S.ai.warrantReview={groundsWords:cut.groundsWords,warrantWords:cut.warrantWords,claimWords:cut.claimWords,warrantStatus:cut.warrantStatus,missingReason:cut.missingReason,chainExplanation:cut.chainExplanation,stale:false};
     S.ai.warnings.push(...modalOmissionWarnings(cut));
+    if(cut.warrantStatus!=="complete")S.ai.warnings.push("Warrant gap: "+cut.missingReason);
     const notes2=applyPass2(cut);
-    showVerdict(notes.concat(cut.notes,notes2,cut.reason||""));
-    setStatus("aiStatus","Card cut: paragraphs "+(S.excerptStart+1)+"-"+(S.excerptEnd+1)+". Green read text may be separated; all bridging text remains in smaller type. Review against the original.","ok");
+    showVerdict(notes.concat(cut.notes,notes2,cut.reason||"",cut.warrantStatus!=="complete"?"Warrant gap: "+cut.missingReason:"AI identified highlighted grounds, warrant and claim; verify against the source."));
+    setStatus("aiStatus","Card cut: paragraphs "+(S.excerptStart+1)+"-"+(S.excerptEnd+1)+". Green text includes the selected reasoning; all context remains visible. "+(cut.warrantStatus==="complete"?"AI chain check complete — verify against the source.":"Warrant gap flagged: "+cut.missingReason),cut.warrantStatus==="complete"?"ok":"warn");
   }catch(e){
     restore();
     setStatus("aiStatus","Analysis stopped: "+safeError(e)+" Your previous card and citation were preserved.","err");
