@@ -116,7 +116,7 @@
 <div class="wrap">
 <header>
   <h1>Evidence Lab</h1>
-  <span class="sub">PF edition · v4.11 · Auto citation → flexible-length card. Full context stays between the read text.</span>
+  <span class="sub">PF edition · v4.7 · Auto citation → flexible-length card. Full context stays between the read text.</span>
 </header>
 
 <!-- ============ 1. SOURCE ============ -->
@@ -259,7 +259,7 @@
     <button class="small green" id="fmtRead">Read (green)</button>
     <button class="small ghost" id="fmtUnder">Underline</button>
     <button class="small ghost" id="fmtPlain">Plain</button>
-    <span class="lbl">— select exact letters, or click a word to cycle: plain → read → underline.</span>
+    <span class="lbl">— or click a word segment to cycle: plain → read → underline.</span>
   </div>
   <div class="cardbox" id="cardPreview">
     <p style="color:#888;font-family:Arial,sans-serif;font-size:12px;margin:0">No card yet — fetch an article and run Analyze & cut, or paste an existing card above.</p>
@@ -280,12 +280,12 @@
     <input type="file" id="projInput" class="hiddenfile" accept=".json,application/json">
   </div>
   <div class="status" id="copyStatus"></div>
-  <details open>
+  <details>
     <summary>What the debater will actually read aloud (green text only)</summary>
     <div class="readbox" id="readAloud"></div>
   </details>
   <details>
-    <summary>Abbreviation, coherence and nonfatal review notes</summary>
+    <summary>Argument check: minimum sufficient grounds → warrant → claim</summary>
     <div class="readbox" id="warrantAudit" style="max-height:320px"></div>
   </details>
   <details>
@@ -316,8 +316,44 @@ function tokenize(text){
 }
 // Paragraph ranges over normalized text (split on blank lines).
 
-function sourceTokens(text){const out=[],re=/[^\s\u2014\u2013]+|[\u2014\u2013]/g;let m;while((m=re.exec(text)))out.push({start:m.index,end:m.index+m[0].length});return out;}
-
+function cutTokens(text){
+ const out=[];
+ for(const w of tokenize(text)){
+  const t=text.slice(w.start,w.end),cuts=new Set([0,t.length]);let m;const re=/[A-Za-z]+/g;
+  while((m=re.exec(t))){
+   const v=m[0],a=m.index,l=v.toLowerCase();cuts.add(a);cuts.add(a+v.length);
+   if(/^[A-Z][a-z]+$/.test(v))cuts.add(a+1);
+   if(l==='nuclear')cuts.add(a+3);
+   if(l==='chosen')cuts.add(a+5);
+   for(const end of ['ing','ed','es','s'])if(l.endsWith(end)&&v.length-end.length>=3){cuts.add(a+v.length-end.length);break;}
+  }
+  const p=[...cuts].sort((a,b)=>a-b);for(let i=0;i<p.length-1;i++)out.push({start:w.start+p[i],end:w.start+p[i+1]});
+ }
+ return out;
+}
+function spokenCut(ids){
+ let out='',prev=null;
+ for(const id of [...new Set(ids)].sort((a,b)=>a-b)){
+  const w=S.words[id-1];if(!w)continue;const t=S.sourceText.slice(w.start,w.end);
+  const last=prev&&S.sourceText.slice(prev.start,prev.end);
+  const initials=prev&&/^[A-Z]$/.test(last)&&/^[A-Z]$/.test(t)&&/^\S*\s+$/.test(S.sourceText.slice(prev.end,w.start));
+  out+=(out&&!(prev&&prev.end===w.start)&&!initials?' ':'')+t;prev=w;
+ }
+ return out.replace(/\s+([,.;:!?])/g,'$1').trim();
+}
+function selectedUnitIds(){const b=excerptWordBounds(),a=[];if(b)for(let i=b.from;i<=b.to;i++)if(S.fmt[i]===2)a.push(i+1);return a;}
+function cutWordCount(ids){
+ const selected=new Set(ids),words=tokenize(S.sourceText);let count=0,i=0;
+ for(const w of words){
+  let found=false;
+  while(i<S.words.length&&S.words[i].start<w.end){
+   if(S.words[i].start>=w.start&&selected.has(i+1))found=true;
+   i++;
+  }
+  if(found)count++;
+ }
+ return count;
+}
 function paragraphRanges(text){
   const paras=[]; const re=/[^\n]+(?:\n[^\n]+)*/g; let m;
   while((m=re.exec(text))!==null){
@@ -456,7 +492,7 @@ function rtfEscape(s){
    APP STATE
    ============================================================ */
 const S={
-  sourceText:"", words:[], paras:[], fmt:[], parts:{},
+  sourceText:"", words:[], paras:[], fmt:[],
   excerptStart:0, excerptEnd:0,          // paragraph indices (inclusive)
   tag:"", tagU:[],                       // tag underline per tag word
   ai:null, webllmEngine:null, keys:{groq:"",gemini:""}, _keyEngine:null, _aiCite:[],
@@ -494,7 +530,6 @@ function formatDateMDY(iso){
   return parseDateText(s)||(/^(?:19|20)\d{2}$/.test(s)?s:"");
 }
 function resetCardState(){
-  S.parts={};
   S.sourceVersion++;S.citationVersion=-1;S.pendingCitation=false;S.loadedUrl="";
   // a new source must never inherit the previous article's card
   ["cFirst","cLast","cDate","cQuals","cTitle","cPub","cUrl","tagInput"].forEach(id=>$(id).value="");
@@ -512,7 +547,7 @@ function setSource(text,meta,opts){
   S.sourceText=next;
   meta=meta||{};
   S.citationContext=String(meta.context||"");
-  S.words=sourceTokens(S.sourceText);
+  S.words=cutTokens(S.sourceText);
   S.paras=paragraphRanges(S.sourceText);
   S.fmt=new Array(S.words.length).fill(0);
   S.excerptStart=0; S.excerptEnd=Math.min(S.paras.length-1,2);
@@ -852,81 +887,6 @@ function wordsOfParagraph(p,b){
 }
 // Build the card as self-contained HTML with inline styles (paste-safe:
 // no classes, explicit fonts, black text on white, green highlight).
-
-function charStates(i){const w=S.words[i],n=w.end-w.start;return S.parts[i]&&S.parts[i].length===n?S.parts[i].slice():new Array(n).fill(S.fmt[i]|0);}
-function bodyRuns(from,to){
- const out=[],add=(start,end,state)=>{if(start>=end)return;const p=out.at(-1);if(p&&p.end===start&&p.state===state)p.end=end;else out.push({start,end,state});};
- for(let i=from;i<=to;i++){const states=charStates(i);if(i>from){const p=charStates(i-1);add(S.words[i-1].end,S.words[i].start,p.at(-1)===states[0]?states[0]:0);}states.forEach((state,k)=>add(S.words[i].start+k,S.words[i].start+k+1,state));}return out;
-}
-function readIds(cut){return [...new Set([...cut.readWords,...(cut.partialWords||[]).map(p=>p.word)])].sort((a,b)=>a-b);}
-function lexicalCore(i){return S.sourceText.slice(S.words[i].start,S.words[i].end).replace(/^[^A-Za-z]+|[^A-Za-z]+$/g,'');}
-function spokenCut(cut,onlyIds){
- const selected=new Map(cut.readWords.map(id=>[id,S.sourceText.slice(S.words[id-1].start,S.words[id-1].end)]));for(const p of cut.partialWords||[])selected.set(p.word,p.text);
- const filter=onlyIds?new Set(onlyIds):null;let out='',prev=null;
- for(const [id,text] of [...selected].sort((a,b)=>a[0]-b[0])){if(filter&&!filter.has(id))continue;
-  const initials=prev&&id===prev.id+1&&/^[A-Z]$/.test(prev.text)&&/^[A-Z]$/.test(text);
-  const plural=prev&&id===prev.id+1&&prev.text.toLowerCase()==='nuc'&&text==='s'&&/^nuclear\s+weapons[.,;:!?]?$/i.test(S.sourceText.slice(S.words[prev.id-1].start,S.words[id-1].end));
-  out+=(out&&!initials&&!plural?' ':'')+text;prev={id,text};
- }return out.replace(/\s+([,.;:!?])/g,'$1').trim();
-}
-function currentCut(){const cut={readWords:[],partialWords:[],underlineWords:[],reason:''},b=excerptWordBounds();if(!b)return cut;
- for(let i=b.from;i<=b.to;i++){const w=S.sourceText.slice(S.words[i].start,S.words[i].end),states=charStates(i);let text='';states.forEach((n,k)=>{if(n===2)text+=w[k];});if(text===w)cut.readWords.push(i+1);else if(text)cut.partialWords.push({word:i+1,text});else if(states.includes(1))cut.underlineWords.push(i+1);}return cut;
-}
-const INITIAL_NAMES=[['United','States'],['United','Nations'],['United','Kingdom'],['European','Union']];
-function initialAllowed(id,text){for(const name of INITIAL_NAMES)for(let k=0;k<name.length;k++){const from=id-1-k;if(from>=0&&name.every((v,j)=>S.words[from+j]&&lexicalCore(from+j)===v)&&text===name[k][0])return true;}return false;}
-function validPartial(id,text){const original=S.sourceText.slice(S.words[id-1].start,S.words[id-1].end),c=lexicalCore(id-1);if(!text||!original.includes(text))return false;
- if(initialAllowed(id,text))return true;if(c.toLowerCase()==='nuclear'&&text===c.slice(0,3))return true;if(c.toLowerCase()==='chosen'&&text===c.slice(0,5))return true;
- if(c.toLowerCase()==='weapons'&&text==='s'&&id>1&&lexicalCore(id-2).toLowerCase()==='nuclear')return true;
- return c.length>=4&&c.endsWith('s')&&!/(ss|us|is)$/i.test(c)&&!['news','always','perhaps','sometimes','politics','economics','physics','series','species','means'].includes(c.toLowerCase())&&text===c.slice(0,-1);
-}
-function fallbackPartial(id){const c=lexicalCore(id-1);return c.toLowerCase()==='nuclear'?c.slice(0,3):c.toLowerCase()==='chosen'?c.slice(0,5):null;}
-function checkedCut(obj,allowed,allowEmpty){
- const b=excerptWordBounds();if(!b)throw outputError('No excerpt selected.');const valid=id=>Number.isInteger(id)&&id>=b.from+1&&id<=b.to+1&&(!allowed||allowed.has(id));
- const notes=Array.isArray(obj.notes)?obj.notes.slice():[];
- for(const k of ['readWords','underlineWords'])if(!Array.isArray(obj[k])||obj[k].some(id=>!valid(id)))throw outputError(k+' contains an out-of-range or unseen source word ID.');
- if(!Array.isArray(obj.partialWords))throw outputError('partialWords must be an array (use [] if none).');
- const full=new Set(obj.readWords),partial=new Map(),whole=new Set(),invalid=new Set();
- for(const p of obj.partialWords){
-  if(!p||!valid(p.word)||typeof p.text!=='string')throw outputError('Partial selection has an invalid/unseen source word ID or text type.');
-  const original=S.sourceText.slice(S.words[p.word-1].start,S.words[p.word-1].end);
-  if(p.text===original){whole.add(p.word);continue;}
-  const paired=p.text!=='s'||obj.readWords.includes(p.word-1)||obj.partialWords.some(q=>q&&q.word===p.word-1);
-  if(!validPartial(p.word,p.text)||!paired){invalid.add(p.word);continue;}
-  const previous=partial.get(p.word),preferred=fallbackPartial(p.word);
-  if(!previous||p.text===preferred||(previous!==preferred&&(p.text.length<previous.length||(p.text.length===previous.length&&p.text<previous))))partial.set(p.word,p.text);
- }
- for(const id of whole)full.add(id);
- for(const id of invalid){if(partial.has(id))continue;const safe=fallbackPartial(id);if(safe)partial.set(id,safe);else full.add(id);notes.push('Repaired invalid partial at W'+id+' using its exact source word or approved prefix.');}
- for(const id of partial.keys()){if(full.has(id))notes.push('Resolved full/partial overlap at W'+id+'; partial takes precedence.');full.delete(id);}
- obj.readWords=[...full].sort((a,b)=>a-b);obj.partialWords=[...partial].sort((a,b)=>a[0]-b[0]).map(([word,text])=>({word,text}));
- const selected=new Set(readIds(obj));obj.underlineWords=[...new Set(obj.underlineWords)].filter(id=>!selected.has(id)).sort((a,b)=>a-b);obj.notes=[...new Set(notes)];
- if(!allowEmpty&&!selected.size)throw outputError('The spoken selection is empty.');return obj;
-}
-function acronymPairs(){
- const pairs=[],stop=new Set('a an the on of for and to in at by'.split(' '));
- for(let i=0;i<S.words.length;i++){const token=S.sourceText.slice(S.words[i].start,S.words[i].end),m=token.match(/^\(([A-Z][A-Z0-9.]{1,11})\)[,.;:]?$/);if(!m)continue;const name=m[1].replace(/\./g,'');
-  for(let start=i-1;start>=Math.max(0,i-18);start--){const phrase=S.words.slice(start,i).map((w,k)=>({id:start+k+1,text:S.sourceText.slice(w.start,w.end)}));if(phrase.some(p=>/[.!?;:\u2014\u2013]/.test(p.text)))break;
-   const content=phrase.filter(p=>!stop.has(p.text.toLowerCase()));
-   if(content.length===name.length&&content.every((p,k)=>{const t=p.text.replace(/^[^A-Za-z]+/,'');return /^[A-Za-z]/.test(t)&&t[0].toUpperCase()===name[k];})){pairs.push({acronymId:i+1,expanded:phrase.map(p=>p.id),content:content.map(p=>p.id)});break;}
-  }
- }return pairs;
-}
-function canonicalizeCut(cut){
- const b=excerptWordBounds(),selected=new Set(readIds(cut)),aliases={};
- const remove=id=>{cut.readWords=cut.readWords.filter(n=>n!==id);cut.partialWords=cut.partialWords.filter(p=>p.word!==id);selected.delete(id);};
- const full=id=>{remove(id);cut.readWords.push(id);selected.add(id);},partial=(id,text)=>{remove(id);cut.partialWords.push({word:id,text});selected.add(id);};
- for(const pair of acronymPairs())if(pair.acronymId>=b.from+1&&pair.acronymId<=b.to+1&&(selected.has(pair.acronymId)||pair.content.filter(id=>selected.has(id)).length>=2)){for(const id of pair.expanded){aliases[id]=pair.acronymId;remove(id);}full(pair.acronymId);}
- for(let i=b.from;i<b.to;i++)for(const name of INITIAL_NAMES)if(lexicalCore(i)===name[0]&&lexicalCore(i+1)===name[1]&&selected.has(i+1)&&selected.has(i+2)){partial(i+1,name[0][0]);partial(i+2,name[1][0]);}
- const offset=S.words[b.from].start,span=S.sourceText.slice(offset,S.words[b.to].end),re=/\b([A-Z][a-z]+)\s+and\s+([A-Z][a-z]+)\s+(administrations?)\b/g;let m;
- while((m=re.exec(span))){const positions=[offset+m.index,offset+m.index+m[0].indexOf(m[2],m[1].length),offset+m.index+m[0].lastIndexOf(m[3])],ids=positions.map(p=>S.words.findIndex(w=>w.start===p)+1);if(ids.every(Boolean)&&selected.has(ids[0])&&selected.has(ids[1]))remove(ids[2]);}
- for(const id of [...selected]){if(/^[\u2014\u2013]$/.test(S.sourceText.slice(S.words[id-1].start,S.words[id-1].end))){remove(id);continue;}const safe=fallbackPartial(id);if(safe)partial(id,safe);}
- cut.readWords=[...new Set(cut.readWords)].sort((a,b)=>a-b);cut.partialWords.sort((a,b)=>a.word-b.word);const final=new Set(readIds(cut));cut.underlineWords=[...new Set(cut.underlineWords)].filter(id=>!final.has(id)).sort((a,b)=>a-b);
- if(cut.groundsWords)for(const key of ['groundsWords','warrantWords','claimWords'])cut[key]=[...new Set(cut[key].map(id=>aliases[id]||id))].filter(id=>final.has(id)).sort((a,b)=>a-b);
- if(cut.fillerExceptions)cut.fillerExceptions=cut.fillerExceptions.map(e=>({...e,wordIds:e.wordIds.filter(id=>final.has(id))})).filter(e=>e.wordIds.length);return cut;
-}
-function selectedFillers(cut){const words=new Set('a an the their its our your to and also just very have has had been that which administration administrations'.split(' '));return readIds(cut).filter(id=>words.has(lexicalCore(id-1).toLowerCase()));}
-function estimateSyllables(text){return (text.match(/[A-Za-z]+/g)||[]).reduce((n,w)=>n+(/^[A-Z]{2,}$/.test(w)?w.length:Math.max(1,(w.toLowerCase().replace(/(?:[^laeiouy]es|ed|[^laeiouy]e)$/,'').match(/[aeiouy]+/g)||[]).length)),0);}
-
 function buildCardHTML(){
   const c=citeValues();
   const b=excerptWordBounds(); if(!b) return null;
@@ -944,10 +904,18 @@ function buildCardHTML(){
   let bodyHTML="";
   for(let p=b.p0;p<=b.p1;p++){
     const range=wordsOfParagraph(p,b); if(!range) continue;
-    let pHTML="";
-    bodyRuns(range[0],range[1]).forEach(r=>{const seg=esc(S.sourceText.slice(r.start,r.end));
-      if(r.state===2)pHTML+='<span style="background-color:#008000;color:#FFFFFF;font-size:10.5pt;font-weight:700;text-decoration:underline">'+seg+'</span>';
-      else if(r.state===1)pHTML+='<u>'+seg+'</u>';else pHTML+=seg;
+    const runs=runsFrom(S.fmt,range[0],range[1]);
+    let pHTML=""; let prevEnd=null;
+    runs.forEach(r=>{
+      if(prevEnd!==null){
+        const gap=S.sourceText.slice(prevEnd,S.words[r.from].start);
+        if(gap) pHTML+=esc(gap);
+      }
+      const seg=esc(S.sourceText.slice(S.words[r.from].start,S.words[r.to].end));
+      if(r.state===2) pHTML+='<span style="background-color:#008000;color:#FFFFFF;font-size:10.5pt;font-weight:700;text-decoration:underline">'+seg+'</span>';
+      else if(r.state===1) pHTML+='<u>'+seg+'</u>';
+      else pHTML+=seg;
+      prevEnd=S.words[r.to].end;
     });
     bodyHTML+='<p style="font-family:Georgia,\'Times New Roman\',serif;font-size:9pt;line-height:1.55;margin:0 0 10pt">'+pHTML+'</p>';
   }
@@ -979,10 +947,19 @@ function buildRTF(){
   rtf+="{\\pard\\fs21 \\b "+rtfEscape(authorYY(c))+"\\b0  "+rtfEscape(bracketText(c))+(c.initials?" //"+rtfEscape(c.initials):"")+"\\par}\n";
   for(let p=b.p0;p<=b.p1;p++){
     const range=wordsOfParagraph(p,b); if(!range) continue;
+    const runs=runsFrom(S.fmt,range[0],range[1]);
     rtf+="{\\pard\\fs18 ";
-    bodyRuns(range[0],range[1]).forEach(r=>{const seg=rtfEscape(S.sourceText.slice(r.start,r.end));
-      if(r.state===2)rtf+="{\\fs21\\highlight1\\cf2\\b\\ul "+seg+"}";
-      else if(r.state===1)rtf+="{\\ul "+seg+"}";else rtf+=seg;
+    let prevEnd=null;
+    runs.forEach(rn=>{
+      if(prevEnd!==null){
+        const gap=S.sourceText.slice(prevEnd,S.words[rn.from].start);
+        if(gap) rtf+=rtfEscape(gap);
+      }
+      const seg=rtfEscape(S.sourceText.slice(S.words[rn.from].start,S.words[rn.to].end));
+      if(rn.state===2) rtf+="\\fs21\\highlight1\\cf2\\b\\ul "+seg+"\\highlight0\\cf0\\b0\\ul0\\fs18 ";
+      else if(rn.state===1) rtf+="\\ul "+seg+"\\ul0 ";
+      else rtf+=seg;
+      prevEnd=S.words[rn.to].end;
     });
     rtf+="\\par}\n";
   }
@@ -1032,11 +1009,11 @@ function renderPreview(){
       const gap=i>range[0]?S.sourceText.slice(S.words[i-1].end,S.words[i].start):"";
       if(gap) pe.appendChild(document.createTextNode(gap));
       const sp=document.createElement("span");
-      sp.className="w";sp.dataset.wi=i;
-      charStates(i).forEach((state,k)=>{const ch=document.createElement("span");ch.className="w s"+state;ch.dataset.ci=k;ch.textContent=S.sourceText[S.words[i].start+k];sp.appendChild(ch);});
+      sp.className="w s"+(S.fmt[i]|0);
+      sp.dataset.wi=i;
+      sp.textContent=S.sourceText.slice(S.words[i].start,S.words[i].end);
       sp.addEventListener("click",()=>{
-        if(!window.getSelection().isCollapsed)return;
-        delete S.parts[i];S.fmt[i]=NEXT_STATE[S.fmt[i]|0];
+        S.fmt[i]=NEXT_STATE[S.fmt[i]|0];
         editedCard();
       });
       pe.appendChild(sp);
@@ -1053,9 +1030,8 @@ function applyFormatToSelection(state){
   }
   const range=sel.getRangeAt(0);
   let changed=0;
-  $("cardPreview").querySelectorAll("span[data-ci]").forEach(sp=>{
-    const probe=document.createRange();probe.selectNodeContents(sp);
-    if(range.compareBoundaryPoints(Range.END_TO_START,probe)<0&&range.compareBoundaryPoints(Range.START_TO_END,probe)>0){const i=+sp.parentElement.dataset.wi,k=+sp.dataset.ci,states=charStates(i);states[k]=state;S.parts[i]=states;S.fmt[i]=states.includes(2)?2:states.includes(1)?1:0;changed++;}
+  $("cardPreview").querySelectorAll("span.w[data-wi]").forEach(sp=>{
+    if(range.intersectsNode(sp)){ S.fmt[+sp.dataset.wi]=state; changed++; }
   });
   if(changed&&S.ai&&S.ai.warrantReview)S.ai.warrantReview.stale=true;
   if(changed){ setStatus("copyStatus",""); $("reviewCheck").checked=false; }
@@ -1084,7 +1060,9 @@ function renderAll(){
   renderReadAloud();
   renderWarrantAudit();
 }
-function renderReadAloud(){$("readAloud").textContent=spokenCut(currentCut())||"(nothing highlighted green yet)";}
+function renderReadAloud(){
+ $("readAloud").textContent=spokenCut(selectedUnitIds())||"(nothing highlighted green yet)";
+}
 function renderChecks(){
   const c=citeValues(); const items=[];
   const add=(cls,msg)=>items.push({cls,msg});
@@ -1225,7 +1203,7 @@ async function engineChat(userPrompt,maxTokens,schema){
   const model=selectedModel();
   if(engine==="puter"){
     await ensurePuter();
-    const resp=await withTimeout(puter.ai.chat(userPrompt,{model,temperature:0,max_tokens:maxTokens}),240000,"Puter");
+    const resp=await withTimeout(puter.ai.chat(userPrompt,{model,temperature:0.2,max_tokens:maxTokens}),240000,"Puter");
     const text=extractModelText(resp);
     if(!text.trim()) throw outputError("Puter returned empty content.");
     return text;
@@ -1233,7 +1211,7 @@ async function engineChat(userPrompt,maxTokens,schema){
   if(engine==="groq"){
     const key=(S.keys.groq||"").trim();
     if(!key) throw new Error("paste your free Groq API key (console.groq.com) — it stays in this tab");
-    const body={model,messages:[{role:"user",content:userPrompt}],temperature:0,max_completion_tokens:maxTokens};
+    const body={model,messages:[{role:"user",content:userPrompt}],temperature:0.2,max_completion_tokens:maxTokens};
     if(/gpt-oss/.test(model)){body.reasoning_effort="low";body.include_reasoning=false;}
     const strict=schema&&/^openai\/gpt-oss-(?:120|20)b$/.test(model);
     const response_format=strict?{type:"json_schema",json_schema:{name:"debate_stage",strict:true,schema}}:{type:"json_object"};
@@ -1265,7 +1243,7 @@ async function engineChat(userPrompt,maxTokens,schema){
     const r=await fetchWithTimeout("https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(model)+":generateContent",{
       method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":key},
       body:JSON.stringify({contents:[{parts:[{text:userPrompt}]}],
-        generationConfig:{temperature:0,maxOutputTokens:maxTokens,responseMimeType:"application/json"}})},90000);
+        generationConfig:{temperature:0.2,maxOutputTokens:maxTokens,responseMimeType:"application/json"}})},90000);
     if(!r.ok) throw await apiError(r,"Gemini");
     const data=await r.json();
     const cand=data.candidates&&data.candidates[0];
@@ -1284,7 +1262,7 @@ async function engineChat(userPrompt,maxTokens,schema){
   }
   setStatus("aiStatus","Analyzing locally (this can take a minute)…","");
   const completion=await withTimeout(S.webllmEngine.chat.completions.create({
-    messages:[{role:"user",content:userPrompt}],temperature:0,max_tokens:maxTokens
+    messages:[{role:"user",content:userPrompt}],temperature:0.2,max_tokens:maxTokens
   }),300000,"Local model");
   const text=extractModelText(completion);
   if(!text.trim()) throw outputError("Local model returned empty content.");
@@ -1300,9 +1278,7 @@ const PICK_SCHEMA=record({support:{type:"string",enum:["supports","mixed","unsup
   startParagraph:{type:"integer"},endParagraph:{type:"integer"},tagKeyPhrases:{type:"array",items:stringType}});
 const PLAN_SCHEMA=record({support:{type:"string",enum:["supports","mixed","unsupported"]},tag:stringType,reason:stringType,
   candidateIds:ids,tagKeyPhrases:{type:"array",items:stringType}});
-const PART_SCHEMA=record({word:{type:"integer"},text:stringType});
-const CUT_SCHEMA=record({readWords:ids,partialWords:{type:"array",items:PART_SCHEMA},underlineWords:ids,reason:stringType});
-
+const CUT_SCHEMA=record({readWords:ids,underlineWords:ids,reason:stringType});
 function validateShape(v,s,path){
   path=path||"response";
   const types=Array.isArray(s.type)?s.type:[s.type];
@@ -1334,7 +1310,7 @@ async function structured(stage,prompt,schema,check){
       issue=safeError(e);
       diagnostic(stage+": "+issue);
       if(!e.repairable&&!(e instanceof SyntaxError)) throw e;
-      if(attempt) throw new Error(stage+" failed twice: "+issue);
+      if(attempt) throw new Error(stage+" failed twice: "+issue+" Previous card preserved.");
       setStatus("aiStatus",stage+": invalid/empty response; retrying once with a larger answer budget.","warn");
     }
   }
@@ -1394,7 +1370,7 @@ function pass1Prompt(arg,chunk,total,ci){
   return "STAGE 2: Select a passage for a "+($("eventSel").value||"Public Forum")+" evidence card.\n"+
     (arg?"Test this claim, without forcing agreement: "+arg:"No claim supplied. Identify this article's strongest specific supported argument.")+
     "\nArticle part "+(ci+1)+"/"+total+". IDs are ONE-BASED [P1], [P2], etc. Return those exact integers, never zero-based offsets.\n"+
-    "Find the minimum sufficient evidence for ONE coherent claim in this part, then select the span from the first useful paragraph to the last. There is NO paragraph-count limit: one paragraph is fine when sufficient; ten or more are fine when useful. The read-aloud sentences do NOT have to be consecutive. All intervening sentences and paragraphs will stay in the card as smaller unread context. Do not add unrelated paragraphs merely to lengthen a short card. Include only the shortest sufficient source-stated mechanism if causal. Descriptive who-did-what facts do not require extra causal paragraphs. Add paragraphs only for essential support or qualifications. Do not select bylines, menus or an author bio as evidence.\n"+
+    "Find all useful evidence for ONE coherent claim in this part, then select the span from the first useful paragraph to the last. There is NO paragraph-count limit: one paragraph is fine when sufficient; ten or more are fine when useful. The read-aloud sentences do NOT have to be consecutive. All intervening sentences and paragraphs will stay in the card as smaller unread context. Do not add unrelated paragraphs merely to lengthen a short card. Include the shortest sufficient explanatory warrant and needed qualifications, not just a headline. Prefer one coherent mechanism over multiple examples or repeated conclusions. Select additional paragraphs only when they supply missing essential support; no paragraph-count limit. Do not select a longer span merely because it contains more relevant material. Do not select bylines, menus or an author bio as evidence.\n"+
     "The tag is one short accurate claim (aim 7-15 words). Preserve uncertainty: 'may', correlation, limits, conditions and the author's position. Do not strengthen a claim just to sound persuasive.\n"+
     "support is supports, mixed, or unsupported relative to the supplied claim. If unsupported, select the nearest passage and an honest descriptive tag; do not fabricate support. reason explains the warrant and limitations. tagKeyPhrases must be exact substrings of the tag.\n"+
     "ARTICLE DATA:\n"+body;
@@ -1477,87 +1453,81 @@ function sentenceBatches(cap){
   return chunks;
 }
 
-const STYLE_POLICY="Select the shortest coherent low-syllable spoken argument: actors, action, essential object and only the necessary source-stated logical/causal bridge. Descriptive facts can support a descriptive tag without an extra causal mechanism; causal tags need the actual source-stated mechanism. Grounds/warrant/claim roles may overlap, not three separate speech quotas.\nOmit filler by default: administration labels after named actors, articles, auxiliaries, possessives, redundant conjunctions, duplicate names, background, optional examples and repeated conclusions. Formal grammar alone is insufficient. Telegraphic but immediately intelligible speech is expected. Keep negation, quantities/units, material conditions and attribution. User permits uncertainty-word omissions; warn when this strengthens the spoken claim.\nUse global WHOLE-WORD W IDs: readWords selects full tokens, partialWords selects {word:W_ID,text:EXACT approved substring}. Accidental overlap is normalized, with valid partials taking precedence. Use nuc from nuclear, chose from chosen, U/S from United States, constituent initials of United Nations/United Kingdom/European Union, or a valid singular from terminal s. No internal fragments (lear), no damaged names (Trum). All text must come from current source.\nIf an expanded name has its original parenthetical acronym, select ONLY the acronym: (TPNW), not its expanded name too. Named Trump and Biden already identify actors; administrations is redundant.\nCalibration ONLY, never inserted as current evidence: \u201cboth the Trump and Biden administrations have rebuffed the 2017 UN Treaty on the Prohibition of Nuclear Weapons (TPNW) and chosen instead to persist with current US policies to maintain and upgrade nuclear weapons\u201d can become \u201cboth Trump Biden rebuffed UN (TPNW) chose maintain upgrade nuc weapons\u201d. \u201cDialogue reduces misunderstandings, which helps groups cooperate\u201d can become \u201cDialogue reduces misunderstandings helps groups cooperate\u201d, NOT \u201cDialogue cooperate\u201d.\nFor each selected phrase, ask what essential fact/mechanism/condition or immediate comprehension disappears if removed. If nothing essential is lost, omit it. Stop once sufficient support is conveyed; no word quota. Multiple paragraphs are allowed when essential to one coherent claim. Filler feedback is a revision request, not a reason to abandon the card. Do not mechanically delete words that carry a necessary relationship. Keep the complete source visible and unchanged.\n";
-const REVIEW_SCHEMA=record({readWords:ids,partialWords:{type:'array',items:PART_SCHEMA},underlineWords:ids,reason:stringType,groundsWords:ids,warrantWords:ids,claimWords:ids,supportMode:{type:'string',enum:['direct_facts','mechanism','association']},warrantStatus:{type:'string',enum:['complete','partial','not_stated']},missingReason:stringType,chainExplanation:stringType,fillerExceptions:{type:'array',items:record({wordIds:ids,reason:stringType})},repairs:{type:'array',items:record({wordIds:ids,reason:stringType})}});
-function wordData(context){return context.map(sent=>'[S'+sent.id+'] '+S.words.slice(sent.from,sent.to+1).map((w,k)=>'[W'+(sent.from+k+1)+']'+JSON.stringify(S.sourceText.slice(w.start,w.end))).join(' ')).join('\n');}
-function pass2Prompt(arg,batch){return 'Cut compact source-supported evidence.\nClaim: '+arg+'\nTag: '+$('tagInput').value+'\n'+STYLE_POLICY+'\nReturn readWords, partialWords, underlineWords and reason. '+(batch?'Irrelevant batches can have no speech.':'Select a nonempty intelligible reading.')+'\nSOURCE:\n'+wordData(batch||excerptSentences());}
-function validateReview(obj,allowed,allowEmpty,previous){
- // HARD CHECKS: only structural/source-selection validity may fail the request.
- checkedCut(obj,allowed,allowEmpty);const b=excerptWordBounds();
- for(const key of ['groundsWords','warrantWords','claimWords'])if(obj[key].some(id=>!Number.isInteger(id)||id<b.from+1||id>b.to+1||(allowed&&!allowed.has(id))))throw outputError(key+' references an out-of-range/unseen source word.');
- canonicalizeCut(obj);const selected=new Set(readIds(obj)),warnings=[];
- for(const key of ['groundsWords','warrantWords','claimWords'])obj[key]=[...new Set(obj[key])].filter(id=>selected.has(id)).sort((a,b)=>a-b);
- // SOFT CHECKS: quality concerns go forward to revision or become review notes.
- const supportIssues=[];
+const BALANCE_POLICY="GOAL: MINIMUM SUFFICIENT ARGUMENT. Neither a conclusion-only keyword salad nor a miniature article. Keep ONE coherent claim and only the facts and mechanism needed to substantiate it. There is no word quota and no requirement to highlight separate sentences for grounds, warrant and claim.\nKEEP: an identifiable actor/subject, the relevant action or fact, the shortest source-stated WHY/HOW bridge, and the supported result. A single compact clause may serve as grounds, warrant AND claim. Role IDs may overlap. Do not repeat a conclusion to populate another role. Include a second mechanism, statistic, example or impact ONLY if the claim cannot stand without it. Do not highlight every causal sentence just because it is a warrant.\nCUT BY DEFAULT: articles, possessives, infinitive to, auxiliary verbs, redundant conjunctions/transitions, titles, institutional labels, scene-setting, historical detail, descriptive adjectives, extra examples, second explanations and repeated conclusions. Words such as the/a/an/their/to/and are unspoken unless indispensable for a clear referent or relationship. Telegraphic but immediately understandable speech is acceptable. Mechanism verbs and their essential objects are NOT filler. Never remove the actual explanation merely to shorten the reading.\nDELETION TEST: for every selected phrase, ask what exact support or necessary comprehension disappears if it is removed. If nothing essential disappears, omit it. 'Relevant' or 'useful context' alone is NOT a reason to highlight. Underlining is sufficient for useful but nonessential context. Do not restore full sentences for stylistic grammar.\nSTOPPING RULE: once the reading identifies what happens, the shortest why/how link, and the relevant result, STOP ADDING. Search the rest of the source for decisive qualifications, not additional supporting material. Keep meaning-changing negation, conditions, figures/units and attribution necessary for honesty. No invented causal links. If the source contains only an unsupported assertion, flag the absent explanation instead of padding the cut.\nSOURCE RULES: use only original W IDs in source order. W IDs identify exact subword units; ~ means adjacent units with no source space. Complete words require their component units. Safe original reductions include United States => U and S, chosen => chose, nuclear => nuc. Do not manufacture words out of unrelated letters. All unread original text remains visible.\nUser permits omission of uncertainty words (could/may/might/etc.) from speech, with a review warning if it strengthens the spoken claim. Do not automatically add modal words back. This is not a claim about tournament rules. Multiple paragraphs are allowed whenever necessary; paragraph count is not a reason to add or omit evidence.\n";
+const BALANCED_SCHEMA=record({readWords:ids,underlineWords:ids,reason:stringType,
+ groundsWords:ids,warrantWords:ids,claimWords:ids,
+ warrantStatus:{type:'string',enum:['complete','partial','not_stated']},
+ missingReason:stringType,chainExplanation:stringType});
+function unitData(sents){return sents.map(s=>'[S'+s.id+'] '+S.words.slice(s.from,s.to+1).map((w,j)=>'[W'+(s.from+j+1)+']'+JSON.stringify(S.sourceText.slice(w.start,w.end))+(S.words[s.from+j+1]&&S.words[s.from+j+1].start===w.end?'~':' ')).join('')).join('\n');}
+function pass2Prompt(arg,batch){
+ return 'Build the MINIMUM SUFFICIENT spoken evidence, not the maximum defensible evidence.\nClaim: '+arg+'\nTag: '+$('tagInput').value+'\n'+BALANCE_POLICY+
+ '\nReturn complete global W ID arrays: readWords spoken, underlineWords useful unread context, and reason. '+(batch?'This is one batch; return empty readWords when it supplies no indispensable support. Avoid repeating the claim already stated in another batch.':'readWords cannot be empty.')+'\nSOURCE:\n'+unitData(batch||excerptSentences());
+}
+function validateBalanced(obj,allowed,allowEmpty){
+ checkedCut(obj,allowed,allowEmpty);const selected=new Set(obj.readWords);
+ for(const key of ['groundsWords','warrantWords','claimWords']){
+  if(obj[key].some(id=>!selected.has(id)))throw outputError(key+' must identify actually highlighted readWords.');
+  obj[key]=[...new Set(obj[key])].sort((a,b)=>a-b);
+ }
  if(obj.warrantStatus==='complete'){
-  if(!obj.groundsWords.length||!obj.claimWords.length)supportIssues.push('AI did not identify spoken grounds and claim clearly.');
-  if(obj.supportMode==='mechanism'&&!obj.warrantWords.length)supportIssues.push('AI did not identify the necessary mechanism in highlighted words.');
-  if(supportIssues.length){obj.warrantStatus='partial';obj.missingReason=supportIssues.join(' ');}
- }
- if(obj.warrantStatus!=='complete'&&!obj.missingReason.trim())obj.missingReason='AI support assessment is incomplete; check the highlighted reasoning against source.';
- if(!obj.chainExplanation.trim())warnings.push('AI supplied no diagnostic explanation of the source-to-claim link.');
- const filler=new Set(selectedFillers(obj)),covered=new Set(),exceptions=[];
- for(const ex of obj.fillerExceptions){
-  const wordIds=[...new Set(ex.wordIds)].filter(id=>filler.has(id)),reason=ex.reason.trim();
-  if(!wordIds.length)continue;
-  if(reason.length<15||/^(?:needed|necessary|required) for (?:grammar|flow|clarity)[.!]?$/i.test(reason))continue;
-  wordIds.forEach(id=>covered.add(id));exceptions.push({wordIds,reason});
- }
- obj.fillerExceptions=exceptions;
- const unresolved=[...filler].filter(id=>!covered.has(id));
- obj.unresolvedFiller=unresolved.map(id=>({id,word:S.sourceText.slice(S.words[id-1].start,S.words[id-1].end)}));
- if(unresolved.length)warnings.push('Filler review needed: '+obj.unresolvedFiller.map(f=>'W'+f.id+' (“'+f.word+'”)').join(', ')+'. Remove if optional; retain only for a necessary relationship.');
- if(previous){
-  const before=new Map(previous.readWords.map(id=>[id,S.sourceText.slice(S.words[id-1].start,S.words[id-1].end)]));for(const p of previous.partialWords)before.set(p.word,p.text);
-  const after=new Map(obj.readWords.map(id=>[id,S.sourceText.slice(S.words[id-1].start,S.words[id-1].end)]));for(const p of obj.partialWords)after.set(p.word,p.text);
-  const added=[...after].filter(([id,text])=>!before.has(id)||!before.get(id).includes(text)).map(([id])=>id),justified=new Set();
-  obj.repairs=obj.repairs.map(r=>({...r,wordIds:r.wordIds.filter(id=>added.includes(id))})).filter(r=>r.wordIds.length);
-  for(const r of obj.repairs)if(r.reason.trim().length>=20)r.wordIds.forEach(id=>justified.add(id));
-  const unexplained=added.filter(id=>!justified.has(id));if(unexplained.length)warnings.push('Review final additions for necessity: '+unexplained.map(id=>'W'+id).join(', ')+'.');
-  if(previous.supportMode==='mechanism'&&obj.supportMode!=='mechanism'){obj.supportMode='mechanism';if(!obj.warrantWords.length){obj.warrantStatus='partial';obj.missingReason='Causal mechanism needs verification in the final reading.';}warnings.push('Causal support mode retained; verify the actual mechanism.');}
- }
- obj.styleWarnings=[...new Set(warnings)];return obj;
+  if(!obj.groundsWords.length||!obj.warrantWords.length||!obj.claimWords.length)throw outputError('Complete needs quoted grounds, mechanism and claim; the roles MAY SHARE THE SAME IDs. Do not add redundant speech just to label roles.');
+  if(!obj.chainExplanation.trim())throw outputError('Explain the actual source-stated mechanism briefly.');
+ }else if(!obj.missingReason.trim())throw outputError('Identify the missing reasoning without inventing it.');
+ return obj;
 }
-function reviewPrompt(arg,draft,context,final){
- const candidates=selectedFillers(draft).map(id=>({id,word:S.sourceText.slice(S.words[id-1].start,S.words[id-1].end)}));
- return (final?'FINAL COHERENCE AND FILLER REVIEW: revise the reading; do not abandon it.':'REPAIR ONLY ESSENTIAL SUPPORT, THEN COMPRESS.')+'\nClaim: '+arg+'\nTag: '+S.tag+'\nEXACT DRAFT SPEECH:\n'+spokenCut(draft)+'\nDraft selection: '+JSON.stringify({readWords:draft.readWords,partialWords:draft.partialWords})+'\nFILLER CANDIDATES TO RECONSIDER: '+JSON.stringify(candidates)+'\nPRIOR REVIEW NOTES: '+JSON.stringify(draft.styleWarnings||[])+'\n'+STYLE_POLICY+
- '\nRead the entire green-only sequence. Remove optional filler/syllables; keep necessary actors, action/object and source-stated mechanism. Do not restore full sentences for literary grammar. Return complete arrays. Role IDs refer to spoken full/partial words and may overlap. Direct descriptive facts need no extra causal mechanism. fillerExceptions explains a SPECIFIC indispensable relationship when retaining a filler word; otherwise remove it. repairs explains any minimal final addition/expansion and its concrete purpose. These diagnostics are not speech. Flag actual missing reasoning instead of inventing it.\nSOURCE CONTEXT:\n'+wordData(context);
+function balancePrompt(arg,cut,sentences,prune){
+ return (prune?'PRUNING AND RECHECK: the previous draft may still over-highlight.':'WARRANT REPAIR WITH STRICT RESTRAINT: repair only essential missing support.')+
+ '\nClaim: '+arg+'\nTag: '+S.tag+'\nDRAFT SPEECH: '+spokenCut(cut.readWords)+'\nDraft IDs: '+JSON.stringify(cut.readWords)+'\n'+BALANCE_POLICY+
+ (prune?'\nStart by deleting repeated conclusions, extra examples, scene-setting, auxiliary/filler words and every optional clause. Keep the shortest sufficient source-stated mechanism. Add words ONLY to repair a concrete defect in the argument or a dangling reference; name that defect in reason. Do not add material just to strengthen a sufficient argument. Recheck the resulting speech ALONE after every deletion.':'\nInspect the provided source for the shortest missing causal/logical bridge. Add that bridge only if absent. If already sufficient, prune rather than expand.')+
+ '\nReturn the COMPLETE final readWords and underlineWords, plus role IDs. Role IDs are diagnostic labels, not separate quotas: a single phrase can serve multiple roles; overlapping role IDs are encouraged when accurate. warrantWords must point to the actual reason/mechanism, not just a marker like because or a restatement of the outcome. No minimum number of role words. Mark complete only if the resulting spoken reading actually connects fact/action to result. Otherwise mark partial/not_stated and describe the gap. chainExplanation is an AI diagnostic, NOT spoken evidence.\nSOURCE CONTEXT:\n'+unitData(sentences);
 }
-function mergeCuts(parts){const out={readWords:[],partialWords:[],underlineWords:[],reason:'',notes:[],styleWarnings:[],supportMode:parts.some(p=>readIds(p).length&&p.supportMode==='mechanism')?'mechanism':'direct_facts'};
- for(const p of parts){out.readWords.push(...p.readWords);out.partialWords.push(...p.partialWords);out.underlineWords.push(...p.underlineWords);out.notes.push(...(p.notes||[]));out.styleWarnings.push(...(p.styleWarnings||[]));}return canonicalizeCut(checkedCut(out));}
-function reviewScore(cut){return (cut.warrantStatus==='complete'?0:1000)+(cut.styleWarnings||[]).length*20+estimateSyllables(spokenCut(cut))*0.01;}
-async function coherentCut(arg,cut){
- cut=canonicalizeCut(checkedCut(cut));const batches=sentenceBatches($('engineSel').value==='local'?6000:24000),parts=[];
+async function balanceAndPrune(arg,cut){
+ const batches=sentenceBatches($('engineSel').value==='local'?6000:24000),parts=[];
  for(let i=0;i<batches.length;i++){
-  const context=batches[i],allowed=new Set(context.flatMap(sent=>Array.from({length:sent.to-sent.from+1},(_,k)=>sent.from+k+1))),draft={...cut,readWords:cut.readWords.filter(id=>allowed.has(id)),partialWords:cut.partialWords.filter(p=>allowed.has(p.word))};
-  setStatus('aiStatus','Compact support review '+(i+1)+'/'+batches.length+' (style feedback is nonfatal)...','');
-  parts.push(await structured('Compact support '+(i+1),reviewPrompt(arg,draft,context,false),REVIEW_SCHEMA,j=>validateReview(j,allowed,batches.length>1)));
+  const sentences=batches[i],allowed=new Set(sentences.flatMap(s=>Array.from({length:s.to-s.from+1},(_,j)=>s.from+j+1)));
+  const local={...cut,readWords:cut.readWords.filter(id=>allowed.has(id))};
+  setStatus('aiStatus','Balancing the shortest sufficient warrant '+(i+1)+'/'+batches.length+'...','');
+  const repaired=await structured('Minimal warrant '+(i+1),balancePrompt(arg,local,sentences,false),BALANCED_SCHEMA,j=>validateBalanced(j,allowed,batches.length>1));
+  parts.push(repaired);
  }
- const merged=mergeCuts(parts),selected=new Set(readIds(merged)),all=excerptSentences(),keep=new Set();
- all.forEach((sent,i)=>{if([...selected].some(id=>id>=sent.from+1&&id<=sent.to+1)){keep.add(i);if(i>0)keep.add(i-1);if(i+1<all.length)keep.add(i+1);}});
- const context=all.filter((_,i)=>keep.has(i)),allowed=new Set(context.flatMap(sent=>Array.from({length:sent.to-sent.from+1},(_,k)=>sent.from+k+1)));
- setStatus('aiStatus','Final coherent-reading and filler check...','');
- let result=await structured('Final coherence',reviewPrompt(arg,merged,context,true),REVIEW_SCHEMA,j=>validateReview(j,allowed,false,merged));
- if(result.unresolvedFiller.length){
-  // One targeted polish attempt; failure must NEVER discard an already valid card.
-  try{
-   setStatus('aiStatus','Targeted filler polish: reconsidering '+result.unresolvedFiller.map(f=>f.word).join(', ')+'...','');
-   const polished=await structured('Optional filler polish',reviewPrompt(arg,result,context,true)+'\nTARGETED TASK: resolve these specific filler candidates without deleting necessary logic: '+JSON.stringify(result.unresolvedFiller),REVIEW_SCHEMA,j=>validateReview(j,allowed,false,result));
-   if(reviewScore(polished)<=reviewScore(result))result=polished;
-  }catch(e){diagnostic('Optional filler polish unavailable; retained the valid card: '+safeError(e));result.styleWarnings.push('Optional filler polish did not complete; valid card retained for manual review.');}
- }
+ const merged={readWords:[],underlineWords:[],reason:'',groundsWords:[],warrantWords:[],claimWords:[],warrantStatus:'partial',missingReason:'',chainExplanation:''};
+ for(const p of parts){for(const k of ['readWords','underlineWords','groundsWords','warrantWords','claimWords'])merged[k].push(...p[k]);}
+ checkedCut(merged);
+ // The final editor sees all selected sentences plus their immediate neighbors.
+ // This retains original context for repairs without inviting unrelated new evidence.
+ const picked=new Set(merged.readWords),all=excerptSentences();
+ const keep=new Set();
+ all.forEach((sent,i)=>{for(let id=sent.from+1;id<=sent.to+1;id++)if(picked.has(id)){keep.add(i);if(i>0)keep.add(i-1);if(i+1<all.length)keep.add(i+1);break;}});
+ const context=all.filter((_,i)=>keep.has(i));
+ const allowed=new Set(context.flatMap(sent=>Array.from({length:sent.to-sent.from+1},(_,j)=>sent.from+j+1)));
+ setStatus('aiStatus','Final deletion test: removing filler and optional support without losing the warrant...','');
+ const result=await structured('Final minimum-sufficient cut',balancePrompt(arg,merged,context,true),BALANCED_SCHEMA,j=>validateBalanced(j,allowed,false));
+ result.draftWords=cutWordCount(cut.readWords);result.finalWords=cutWordCount(result.readWords);
  return result;
 }
-function modalOmissionWarnings(cut){const selected=new Set(readIds(cut)),warnings=[];
- for(const sent of excerptSentences()){if(![...selected].some(id=>id>=sent.from+1&&id<=sent.to+1))continue;for(let i=sent.from;i<=sent.to;i++)if(/^(could|may|might|would|can|possibly|perhaps|potentially)$/i.test(lexicalCore(i))&&!selected.has(i+1))warnings.push('Uncertainty wording omitted: '+lexicalCore(i)+' (paragraph '+(sent.paragraph+1)+'). Spoken wording may sound stronger than the source.');}return [...new Set(warnings)];}
-function renderWarrantAudit(){const box=$('warrantAudit');if(!box)return;box.textContent='';const a=S.ai&&S.ai.warrantReview;
- if(!a){box.textContent='Analyze & cut checks compact wording, abbreviations and coherence. Style concerns become revision feedback, not fatal errors.';return;}
- const add=(name,text)=>{const p=document.createElement('p');p.style.margin='5px 0';const b=document.createElement('strong');b.textContent=name+': ';p.appendChild(b);p.appendChild(document.createTextNode(text));box.appendChild(p);};
- add('AI support check',a.stale?'Out of date — edited; rerun analysis.':a.supportMode+' / '+a.warrantStatus+'; verify against source.');
- const actual=currentCut();add('Spoken size',readIds(actual).length+' source words; ~'+estimateSyllables(spokenCut(actual))+' estimated syllables.');
- for(const [name,key] of [['Grounds','groundsWords'],['Essential reasoning','warrantWords'],['Claim / result','claimWords']])add(name,spokenCut(a,a[key])||(a.supportMode==='direct_facts'?'Direct descriptive evidence; no separate mechanism required.':'(not identified)'));
- if(a.missingReason)add('Support gap',a.missingReason);if(a.chainExplanation)add('AI diagnostic, not quoted evidence',a.chainExplanation);
- for(const note of a.notes||[])add('Automatic normalization',note);for(const warning of a.styleWarnings||[])add('Nonfatal review note',warning);
+function modalOmissionWarnings(cut){
+ const selected=new Set(cut.readWords),warnings=[];
+ for(const sent of excerptSentences()){
+  if(!cut.readWords.some(id=>id>=sent.from+1&&id<=sent.to+1))continue;
+  const a=S.words[sent.from].start,b=S.words[sent.to].end,text=S.sourceText.slice(a,b);
+  for(const m of text.matchAll(/\b(could|may|might|would|can|possibly|perhaps|potentially)\b/gi)){
+   const start=a+m.index,end=start+m[0].length;
+   const group=S.words.flatMap((w,i)=>w.start>=start&&w.end<=end?[i+1]:[]);
+   if(group.some(id=>!selected.has(id)))warnings.push('Uncertainty wording omitted: '+m[0]+' (paragraph '+(sent.paragraph+1)+'). Spoken wording may be stronger than the source.');
+  }
+ }
+ return [...new Set(warnings)];
+}
+function renderWarrantAudit(){
+ const box=$('warrantAudit');if(!box)return;box.textContent='';
+ const a=S.ai&&S.ai.warrantReview;
+ if(!a){box.textContent='Analyze & cut checks for the shortest sufficient source-stated reasoning.';return;}
+ const add=(title,text)=>{const p=document.createElement('p');p.style.margin='5px 0';const b=document.createElement('strong');b.textContent=title+': ';p.appendChild(b);p.appendChild(document.createTextNode(text));box.appendChild(p);};
+ add('AI chain check',a.stale?'Out of date — card edited; rerun analysis.':a.warrantStatus+'; verify against source.');
+ add('Selected source words',String(cutWordCount(selectedUnitIds()))+' (partial words count once per original word)');
+ for(const [name,key] of [['Grounds','groundsWords'],['Shortest warrant','warrantWords'],['Claim / result','claimWords']])add(name,spokenCut(a[key])||'(not identified)');
+ if(a.missingReason)add('Gap',a.missingReason);
+ if(a.chainExplanation)add('AI diagnostic, not quoted evidence',a.chainExplanation);
 }
 /* underline key phrases in the tag (pass 1: tagKeyPhrases) */
 function applyTagKeyPhrases(phrases){
@@ -1608,7 +1578,7 @@ function applyPass1Cand(cand,extraNotes){
   $("pStart").value=cand.p0+1; $("pEnd").value=cand.p1+1;
   /* a fresh cut starts clean: clear old formatting inside the new excerpt */
   const wb=excerptWordBounds();
-  if(wb){for(let i=wb.from;i<=wb.to;i++){S.fmt[i]=0;delete S.parts[i];}}
+  if(wb){for(let i=wb.from;i<=wb.to;i++)S.fmt[i]=0;}
   $("tagInput").value=cand.tag;
   S.tag=cand.tag;
   S.tagU=new Array(tokenize(S.tag).length).fill(false);
@@ -1723,10 +1693,14 @@ async function scanChunks(arg,chunks,chatFn,onProgress){
    with no usable read-aloud selection throws (so the caller can restore the
    previous card instead of silently clearing it). */
 function applyPass2(res){
- checkedCut(res);const b=excerptWordBounds();for(let i=b.from;i<=b.to;i++){S.fmt[i]=0;delete S.parts[i];}
- res.underlineWords.forEach(id=>S.fmt[id-1]=1);res.readWords.forEach(id=>S.fmt[id-1]=2);
- for(const p of res.partialWords){const i=p.word-1,w=S.words[i],original=S.sourceText.slice(w.start,w.end),at=original.indexOf(p.text),states=new Array(original.length).fill(0);for(let k=at;k<at+p.text.length;k++)states[k]=2;S.parts[i]=states;S.fmt[i]=2;}
- renderAll();return res.notes||[];
+  const b=excerptWordBounds();
+  if(!b)throw new Error("no excerpt is selected");
+  if(!res.readWords.length)throw new Error("no valid read-aloud words selected");
+  for(let i=b.from;i<=b.to;i++)S.fmt[i]=0;
+  res.underlineWords.forEach(id=>S.fmt[id-1]=1);
+  res.readWords.forEach(id=>S.fmt[id-1]=2);
+  renderAll();
+  return [];
 }
 function showVerdict(notes){
   const vb=$("verdictBox");
@@ -1779,6 +1753,19 @@ function candidatePlanPrompt(arg,candidates){
       return "[C"+(i+1)+"] P"+(c.p0+1)+"-P"+(c.p1+1)+"; preliminary "+c.support+"\nTag: "+c.tag+"\nReason: "+c.reason+"\nSOURCE: "+quote;
     }).join("\n\n");
 }
+function checkedCut(obj,allowedIds,allowEmpty,skipGuard){
+  const b=excerptWordBounds();
+  for(const k of ["readWords","underlineWords"]){
+    if(!Array.isArray(obj[k])||obj[k].some(n=>!Number.isInteger(n)||n<b.from+1||n>b.to+1||(allowedIds&&!allowedIds.has(n))))
+      throw outputError(k+" must contain valid global W IDs from the supplied excerpt.");
+    obj[k]=[...new Set(obj[k])].sort((a,b)=>a-b);
+  }
+  if(!allowEmpty&&!obj.readWords.length)throw outputError("readWords must contain an intelligible claim and warrant.");
+  const reads=new Set(obj.readWords);
+  obj.underlineWords=obj.underlineWords.filter(id=>!reads.has(id));
+  obj.notes=[];
+  return obj;
+}
 async function analyze(){
   if(!S.sourceText){setStatus("aiStatus","Load an article first.","err");return;}
   if(S.busy)return;
@@ -1788,20 +1775,20 @@ async function analyze(){
   S.log=[];$("runLog").textContent="";
   /* Full transaction: no failed stage may corrupt a previous card or citation. */
   const snap={excerptStart:S.excerptStart,excerptEnd:S.excerptEnd,tag:S.tag,tagU:S.tagU.slice(),
-    fmt:S.fmt.slice(),parts:JSON.parse(JSON.stringify(S.parts)),ai:S.ai,pStart:$("pStart").value,pEnd:$("pEnd").value,tagInput:$("tagInput").value,
+    fmt:S.fmt.slice(),ai:S.ai,pStart:$("pStart").value,pEnd:$("pEnd").value,tagInput:$("tagInput").value,
     fields:FIELDS.map(id=>[id,$(id).value]),aiCite:S._aiCite.slice(),review:$("reviewCheck").checked,
     sourceVersion:S.sourceVersion,citationVersion:S.citationVersion,
     verdict:$("verdictBox").innerHTML,verdictDisplay:$("verdictBox").style.display};
   const restore=()=>{
     if(S.sourceVersion!==snap.sourceVersion)return;
     S.excerptStart=snap.excerptStart;S.excerptEnd=snap.excerptEnd;S.tag=snap.tag;S.tagU=snap.tagU;
-    S.fmt=snap.fmt;S.parts=snap.parts;S.ai=snap.ai;
+    S.fmt=snap.fmt;S.ai=snap.ai;
     snap.fields.forEach(([id,v])=>$(id).value=v);S._aiCite=snap.aiCite;S.citationVersion=snap.citationVersion;$("reviewCheck").checked=snap.review;
     $("pStart").value=snap.pStart;$("pEnd").value=snap.pEnd;$("tagInput").value=snap.tagInput;
     renderAll();$("verdictBox").innerHTML=snap.verdict;$("verdictBox").style.display=snap.verdictDisplay;
   };
   try{
-    diagnostic("Evidence Lab v4.11 · "+engine+" · "+selectedModel());
+    diagnostic("Evidence Lab v4.7 · "+engine+" · "+selectedModel());
     setStatus("aiStatus","Stage 1/3: locating source-stated citation information...","");
     const notes=S.citationVersion===S.sourceVersion?["Reused the completed citation lookup for this source."]:await citationStage();
     renderAll();
@@ -1822,7 +1809,7 @@ async function analyze(){
     notes.push(...applyPass1Cand(best));
     $("reviewCheck").checked=false;
     if(S.ai.support==="unsupported"){
-      S.fmt.fill(0);S.parts={};
+      S.fmt.fill(0);
       renderAll();
       showVerdict(notes);
       setStatus("aiStatus","The source does not support that claim. Citation and nearest consecutive passage are shown; no supporting evidence was invented or highlighted.","warn");
@@ -1833,22 +1820,23 @@ async function analyze(){
     let cut;
     if(batches.length===1)cut=await structured("Card cut",pass2Prompt(arg),CUT_SCHEMA,checkedCut);
     else{
-      const merged={readWords:[],partialWords:[],underlineWords:[],reason:""};
+      const merged={readWords:[],underlineWords:[],reason:""};
       for(let i=0;i<batches.length;i++){
         setStatus("aiStatus","Stage 3/3: selecting read text, card part "+(i+1)+"/"+batches.length+"...","");
         const allowed=new Set(batches[i].flatMap(s=>Array.from({length:s.to-s.from+1},(_,j)=>s.from+j+1)));
         const part=await structured("Card cut "+(i+1),pass2Prompt(arg,batches[i]),CUT_SCHEMA,j=>checkedCut(j,allowed,true,true));
-        merged.readWords.push(...part.readWords);merged.partialWords.push(...part.partialWords);merged.underlineWords.push(...part.underlineWords);
+        merged.readWords.push(...part.readWords);merged.underlineWords.push(...part.underlineWords);
         merged.reason+=(merged.reason?" ":"")+part.reason;
       }
       cut=checkedCut(merged);
     }
-    cut=await coherentCut(arg,cut);
-    S.ai.warrantReview={...cut,stale:false};S.ai.warnings.push(...modalOmissionWarnings(cut),...(cut.styleWarnings||[]));
-    if(cut.warrantStatus!=="complete")S.ai.warnings.push("Support gap: "+cut.missingReason);
+    cut=await balanceAndPrune(arg,cut);
+    S.ai.warrantReview={groundsWords:cut.groundsWords,warrantWords:cut.warrantWords,claimWords:cut.claimWords,warrantStatus:cut.warrantStatus,missingReason:cut.missingReason,chainExplanation:cut.chainExplanation,stale:false};
+    S.ai.warnings.push(...modalOmissionWarnings(cut));
+    if(cut.warrantStatus!=="complete")S.ai.warnings.push("Warrant gap: "+cut.missingReason);
     const notes2=applyPass2(cut);
-    showVerdict(notes.concat(cut.notes,notes2,cut.reason||"",...(cut.styleWarnings||[]),cut.warrantStatus!=="complete"?"Support gap: "+cut.missingReason:"AI coherent-reading check complete; verify against source."));
-    setStatus("aiStatus","Card cut: paragraphs "+(S.excerptStart+1)+"-"+(S.excerptEnd+1)+". Card created. "+(cut.warrantStatus!=="complete"||cut.styleWarnings.length?"Review notes are shown below; style feedback did not discard the card.":"Compact/coherent reading checked; compare with source."),cut.warrantStatus!=="complete"||cut.styleWarnings.length?"warn":"ok");
+    showVerdict(notes.concat(cut.notes,notes2,cut.reason||"",cut.warrantStatus!=="complete"?"Warrant gap: "+cut.missingReason:"AI identified a minimum-sufficient highlighted chain; verify against the source."));
+    setStatus("aiStatus","Card cut: paragraphs "+(S.excerptStart+1)+"-"+(S.excerptEnd+1)+". Minimum-sufficient review: "+cut.finalWords+" source words selected. "+(cut.warrantStatus==="complete"?"Reasoning retained; verify against source.":"Reasoning gap flagged: "+cut.missingReason),cut.warrantStatus==="complete"?"ok":"warn");
   }catch(e){
     restore();
     setStatus("aiStatus","Analysis stopped: "+safeError(e)+" Your previous card and citation were preserved.","err");
@@ -1905,7 +1893,14 @@ function importCardHTML(html){
   const cp=parseCiteLine(citeText);
   // BODY
   let body=""; const fmtMap=[];const stateChars=[];
-  bodyParas.forEach((p,pi)=>{if(pi){body+='\n\n';stateChars.push(0,0);}for(const x of p)for(const ch of x.t.replace(/\u00a0/g,' ')){if(/\s/.test(ch)){if(!body||/\s$/.test(body))continue;body+=' ';stateChars.push(x.s);}else{body+=ch;stateChars.push(x.s);}}while(body.endsWith(' ')){body=body.slice(0,-1);stateChars.pop();}});
+  bodyParas.forEach((p,pi)=>{
+ if(pi){body+='\n\n';stateChars.push(0,0);}
+ for(const x of p)for(const ch of x.t.replace(/\u00a0/g,' ')){
+  if(/\s/.test(ch)){if(!body||/\s$/.test(body))continue;body+=' ';stateChars.push(x.s);}
+  else{body+=ch;stateChars.push(x.s);}
+ }
+ while(body.endsWith(' ')){body=body.slice(0,-1);stateChars.pop();}
+});
   if(!body.trim()){
     setStatus("fetchStatus","That paste had no card body after the citation. If your card has no separate tag line, paste the body text into the article box instead.","err");
     return;
@@ -1913,10 +1908,10 @@ function importCardHTML(html){
   resetCardState();
   S.citationContext="";
   S.sourceText=normalizeSource(body);
-  S.words=sourceTokens(S.sourceText);
+  S.words=cutTokens(S.sourceText);
   S.paras=paragraphRanges(S.sourceText);
   S.fmt=new Array(S.words.length).fill(0);
-  S.parts={};S.words.forEach((w,i)=>{const states=stateChars.slice(w.start,w.end).map(n=>n||0);S.fmt[i]=states.includes(2)?2:states.includes(1)?1:0;if(states.some(n=>n!==S.fmt[i]))S.parts[i]=states;});
+  S.words.forEach((w,i)=>{S.fmt[i]=Math.max(0,...stateChars.slice(w.start,w.end));});
   S.excerptStart=0; S.excerptEnd=S.paras.length-1;
   S.tag=tagText; S.tagU=tagU.slice(0,tokenize(tagText).length);
   S.ai=null;
@@ -1988,22 +1983,14 @@ function exportRTF(){
 }
 function projectData(){
   const c=citeValues();
-  return {app:"evidence-lab",v:5,
-    source:S.sourceText,fmt:[...S.fmt],parts:S.parts,excerptStart:S.excerptStart,excerptEnd:S.excerptEnd,
+  return {app:"evidence-lab",v:3,
+    source:S.sourceText,fmt:[...S.fmt],excerptStart:S.excerptStart,excerptEnd:S.excerptEnd,
     tag:S.tag,tagU:S.tagU,cite:c,arg:$("argInput").value,event:$("eventSel").value,
     aiCite:S._aiCite,context:S.citationContext};
 }
 function saveProject(){
   download("evidence-lab-project.json",JSON.stringify(projectData(),null,1),"application/json");
 }
-
-function legacySubwordTokens(text){const out=[];for(const w of tokenize(text)){const token=text.slice(w.start,w.end),cuts=new Set([0,token.length]);let m;const re=/[A-Za-z]+/g;while((m=re.exec(token))){const v=m[0],a=m.index,l=v.toLowerCase();cuts.add(a);cuts.add(a+v.length);if(/^[A-Z][a-z]+$/.test(v))cuts.add(a+1);if(l==='nuclear')cuts.add(a+3);if(l==='chosen')cuts.add(a+5);for(const end of ['ing','ed','es','s'])if(l.endsWith(end)&&v.length-end.length>=3){cuts.add(a+v.length-end.length);break;}}const pts=[...cuts].sort((a,b)=>a-b);for(let i=0;i<pts.length-1;i++)out.push({start:w.start+pts[i],end:w.start+pts[i+1]});}return out;}
-function restoreProjectFormatting(p){
- S.fmt=new Array(S.words.length).fill(0);S.parts={};const old=p.v===3?legacySubwordTokens(S.sourceText):p.v>=5?S.words:tokenize(S.sourceText),chars=new Array(S.sourceText.length).fill(0);
- old.forEach((w,i)=>{const state=Array.isArray(p.fmt)&&[0,1,2].includes(p.fmt[i])?p.fmt[i]:0;for(let k=w.start;k<w.end;k++)chars[k]=state;const states=p.v!==3&&p.parts&&p.parts[i];if(Array.isArray(states)&&states.length===w.end-w.start&&states.every(n=>[0,1,2].includes(n)))for(let k=0;k<states.length;k++)chars[w.start+k]=states[k];});
- S.words.forEach((w,i)=>{const states=chars.slice(w.start,w.end);S.fmt[i]=states.includes(2)?2:states.includes(1)?1:0;if(states.some(n=>n!==S.fmt[i]))S.parts[i]=states;});
-}
-
 function applyProjectData(p){
   try{
       if(!p||p.app!=="evidence-lab"||typeof p.source!=="string") throw new Error("not an Evidence Lab project");
@@ -2012,8 +1999,12 @@ function applyProjectData(p){
       S.citationContext=typeof p.context==="string"?p.context:"";
       if(typeof p.event==="string")$("eventSel").value=p.event;
       S.sourceText=normalizeSource(p.source);
-      S.words=sourceTokens(S.sourceText); S.paras=paragraphRanges(S.sourceText);
-      restoreProjectFormatting(p);
+      S.words=cutTokens(S.sourceText); S.paras=paragraphRanges(S.sourceText);
+      S.fmt=new Array(S.words.length).fill(0);
+      if(Array.isArray(p.fmt)){
+ if(p.v>=3)for(let i=0;i<Math.min(p.fmt.length,S.fmt.length);i++)S.fmt[i]=[0,1,2].includes(p.fmt[i])?p.fmt[i]:0;
+ else{const old=tokenize(S.sourceText);let j=0;S.words.forEach((w,i)=>{while(j+1<old.length&&w.start>=old[j].end)j++;S.fmt[i]=[0,1,2].includes(p.fmt[j])?p.fmt[j]:0;});}
+}
       S.excerptStart=Math.min(Math.max(0,p.excerptStart|0),S.paras.length-1);
       S.excerptEnd=Math.min(Math.max(S.excerptStart,p.excerptEnd|0),S.paras.length-1);
       S.tag=String(p.tag||""); S.tagU=Array.isArray(p.tagU)?p.tagU:[];
@@ -2093,7 +2084,7 @@ $("fmtRead").addEventListener("click",()=>applyFormatToSelection(2));
 $("fmtUnder").addEventListener("click",()=>applyFormatToSelection(1));
 $("fmtPlain").addEventListener("click",()=>applyFormatToSelection(0));
 $("analyzeBtn").addEventListener("click",analyze);
-$("clearFmtBtn").addEventListener("click",()=>{S.fmt.fill(0);S.parts={};editedCard();});
+$("clearFmtBtn").addEventListener("click",()=>{S.fmt.fill(0);editedCard();});
 $("copyRich").addEventListener("click",copyRich);
 $("copyPlain").addEventListener("click",async()=>{
   const p=buildPlainText();
