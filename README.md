@@ -7,10 +7,11 @@ All application HTML, CSS, and JavaScript are in index.html. No build tools, bac
 1. Put index.html at the top level of a GitHub repository.
 2. In repository Settings > Pages, select Deploy from a branch, main, / (root), Save.
 3. Open the published HTTPS site. Do not rely on opening the HTML with file:// for model loading or clipboard access.
-4. Fetch an article or paste the original text. Verify extraction and citation.
-5. Enter the claim/research question. Choose local WebLLM or Gemini BYOK, and Analyze & cut.
-6. Inspect the model verdict, tag, complete excerpt, and highlighted sentences. Click sentences to toggle highlighting; change paragraph bounds to restore context.
-7. Acknowledge human review only after checking the source. Export RTF/HTML, copy rich text, print/PDF, or save a project JSON.
+4. Follow the Source → Citation → Analyze → Review workflow, or use its navigation to jump between sections.
+5. Fetch an article or paste the original text (up to 250,000 characters). Verify extraction and citation.
+6. Enter a claim to test. Choose a provider and model under Provider & model, then select Find evidence & build card.
+7. Inspect the verdict, tag, complete excerpt, highlighted reading, and warrant/support audit. Click words to cycle formatting or select text for precise formatting; change paragraph bounds to restore context.
+8. Acknowledge human review only after checking the source. Export RTF/HTML, copy rich text, print/PDF, or save a project JSON.
 
 Only index.html is needed on GitHub Pages. Never commit a Gemini API key.
 
@@ -19,21 +20,21 @@ Only index.html is needed on GitHub Pages. Never commit a Gemini API key.
 URL -> direct browser fetch -> Mozilla Readability (when allowed by source CORS)
 Fallback, only with consent: Jina Reader -> editable extracted text
 Alternative: import TXT/HTML or paste original source text
-Indexed paragraphs/sentences with original source offsets -> model selects paragraph bounds and sentence IDs -> strict response validation -> literal source-only renderer -> human review -> exports
+Indexed paragraphs and words with original source offsets -> model selects a relevant passage and source words -> strict response validation and a grounds/warrant/claim coherence check -> literal source-only renderer -> human review -> exports
 
-The source snapshot is the text in the source editor, not a certified byte-for-byte representation of the publisher's HTML/PDF. HTML extraction and Jina can change layout or lose content. Compare with the original. No internal omission ellipses are generated. Entire consecutive paragraphs remain in the card, including unread sentences. Highlighting is sentence-level rather than aggressive word-level cutting.
+The source snapshot is the text in the source editor, not a certified byte-for-byte representation of the publisher's HTML/PDF. HTML extraction and Jina can change layout or lose content. Compare with the original. No internal omission ellipses are generated. Every word in the selected consecutive paragraphs remains in the card, including unread context. The AI marks source wording to read aloud and checks whether the spoken selection carries the grounds, any source-stated warrant, and the claim/result. It must flag absent or incomplete reasoning instead of inventing a warrant; direct descriptive evidence does not require an invented causal mechanism. This check is advisory, not a guarantee of argument quality.
 
-Citation: full author/editor, publication date, source/publication, article title, access date, full URL, qualifications when available, pages where applicable. Missing fields are flagged, not invented. Metadata extraction checks HTML metadata, article JSON-LD, and Readability. Jina fallback extracts only its header title/date; author and publisher require manual entry. No cross-site author biography research is performed.
+Citation: author, publication date, source/publication, article title, access date, full URL, and source-stated qualifications when available; add page details when applicable. Missing fields are flagged, not invented. Metadata extraction checks HTML metadata, article JSON-LD, and Readability. AI citation fields are checked against source text and still require human verification. Jina fallback extracts only its header title/date; author and publisher require manual entry. No cross-site author biography research is performed.
 
 The event dropdown records a formatting preference; it does not implement event-specific adjudication, speech rules, or tournament compliance. The shared card format is tag + written citation + original excerpt with marked reading.
 
 ## Model options
 
 ### Local WebLLM
-Default: Qwen2.5-3B-Instruct-q4f16_1-MLC, using @mlc-ai/web-llm 0.2.79. First load can download multiple gigabytes; WebGPU and adequate device memory are required. A 16,384-token context is requested. App source limit: 12,000 characters. Large model downloads and shader compilation are not instantaneous; Stop discards the result but may not immediately cancel a download. If loading fails, check browser GPU support, use a model ID supported by the pinned WebLLM release, or use Gemini. The model ID is configurable. A small local model may make substantive reasoning errors even when its JSON is valid.
+Default: Qwen2.5-3B-Instruct-q4f16_1-MLC, using @mlc-ai/web-llm 0.2.79. First load can download multiple gigabytes; WebGPU and adequate device memory are required. A 16,384-token context is requested. The app rejects source inputs over 250,000 characters and analyzes articles in paragraph/sentence batches when needed; local model context and device memory remain practical constraints. Large model downloads and shader compilation are not instantaneous; Stop discards the result but may not immediately cancel a download. If loading fails, check browser GPU support, use a model ID supported by the pinned WebLLM release, or use Gemini. The model ID is configurable. A small local model may make substantive reasoning errors even when its JSON is valid.
 
 ### Gemini BYOK
-Default model: gemini-2.5-flash; model ID is editable. Uses REST generateContent with JSON MIME type and responseSchema, then client-side validation. Source limit: 180,000 characters. Your key is held only in the password input/browser memory, never saved in projects or localStorage. Source text and argument are sent to Google only after consent and Analyze & cut. Availability, rate limits, free-tier eligibility, data handling, and billing depend on your account/provider terms. Do not assume that all keys or models are free.
+Model ID is editable. Uses REST generateContent with JSON MIME type and responseSchema, then client-side validation. The app rejects source inputs over 250,000 characters and analyzes articles in paragraph/sentence batches when needed. Your key is held only in the password input/browser memory, never saved in projects or localStorage. Source text and argument are sent to Google only after consent and Analyze & cut. Availability, rate limits, free-tier eligibility, data handling, and billing depend on your account/provider terms. Do not assume that all keys or models are free.
 
 This is a personal bring-your-own-key prototype, NOT a secure way to ship an application-owned secret. Browser extensions, compromised dependencies, and XSS can access a browser-held key. For a shared production service, add an authenticated backend/proxy with secret storage, quotas, abuse protection, and appropriate CORS. GitHub Pages cannot run that backend. Never embed a shared key in HTML, JavaScript, a public repository, or build-time environment variables shipped to the browser.
 

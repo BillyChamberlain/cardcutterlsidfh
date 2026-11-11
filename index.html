@@ -16,7 +16,8 @@
   Integrity rules built in:
     - Source text is immutable. Formatting is stored as word-level ranges;
       nothing can ever alter the quoted words themselves.
-    - No ellipses are ever inserted; unread context stays in the card.
+    - No ellipses are ever inserted; every word in the selected source
+      paragraphs stays in the exported card, not just highlighted words.
     - Missing citation fields are flagged, never invented.
   Fetching:
     - Direct fetch first (works when the site allows it).
@@ -35,9 +36,9 @@
       supports/mixed/unsupported verdict. Long articles are scanned in
       chunks so nothing is silently truncated.
     - Pass 2 "cut the card": the model sees ONLY the chosen excerpt and
-      picks essential words and short phrases to read aloud (green),
-      with material qualifications never dropped —
-      plus underline-level context (under ~2/3 total).
+      identifies the evidence, source-stated warrant, conclusion and
+      qualifications. Warrant sentences remain intact in the read text;
+      the complete selected passage stays in the exported card.
     - Engines: Puter (no API key — free Puter account on first use),
       Groq free tier (gpt-oss-120b, no card), Gemini free tier, or
       local WebLLM (WebGPU, no network). Keys stay in the tab.
@@ -46,40 +47,58 @@
 -->
 <style>
   :root{
-    --bg:#14161a; --panel:#1d2026; --panel2:#23262e; --line:#33373f;
-    --text:#e8e9ec; --dim:#9aa1ad; --accent:#5b8cff; --accent2:#3fbf6f;
-    --warn:#e0a93b; --bad:#e05b5b;
+    --bg:#f5f4f0; --panel:#fffefa; --panel2:#f8f7f3; --line:#e4e0d7;
+    --text:#26332f; --dim:#68746e; --accent:#365e50; --accent2:#315e4b;
+    --warn:#8b6118; --bad:#a3443e; --focus:rgba(54,94,80,.18);
   }
   *{box-sizing:border-box}
-  html body{margin:0;background:var(--bg);color:var(--text);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+  html{scroll-behavior:smooth;scroll-padding-top:24px}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
   h1,h2,h3{color:var(--text)}
-  .wrap{max-width:1060px;margin:0 auto;padding:18px 18px 80px}
-  header{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;padding:6px 0 14px;border-bottom:1px solid var(--line);margin-bottom:18px}
-  header h1{font-size:22px;margin:0;letter-spacing:.3px}
-  header .sub{color:var(--dim);font-size:12.5px}
-  section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
-  h2{font-size:15px;margin:0 0 12px;display:flex;align-items:center;gap:8px}
-  h2 .n{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;font-weight:700;flex:none}
-  label{display:block;font-size:12px;color:var(--dim);margin-bottom:4px}
+  .wrap{max-width:1120px;margin:0 auto;padding:28px 28px 72px}
+  .app-header{padding:4px 0 0;margin-bottom:26px}
+  .brandline{display:flex;align-items:center;gap:13px}
+  .brand-mark{display:grid;place-items:center;width:38px;height:38px;border:1px solid #c8d3ca;border-radius:10px;background:#edf1e9;color:var(--accent);font:700 13px/1 Georgia,serif;letter-spacing:-.04em}
+  .brand-copy{min-width:0}
+  .eyebrow{margin:0 0 1px;color:var(--accent);font-size:10px;font-weight:700;letter-spacing:.13em}
+  .app-header h1{font:600 25px/1.15 Georgia,"Times New Roman",serif;letter-spacing:-.025em;margin:0}
+  .header-note{margin:0 0 0 auto;color:var(--dim);font-size:13px}
+  .workflow{display:flex;align-items:center;gap:0;margin-top:22px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .workflow a{position:relative;display:flex;align-items:center;gap:9px;min-height:44px;padding:0 20px;color:var(--dim);font-size:12px;font-weight:600;text-decoration:none;transition:color 140ms ease-out}
+  .workflow a:first-child{padding-left:0}
+  .workflow a+ a:before{content:"";position:absolute;left:0;height:18px;border-left:1px solid var(--line)}
+  .workflow a:hover,.workflow a.is-current{color:var(--accent)}
+  .workflow a.is-current:after{position:absolute;right:20px;bottom:-1px;left:20px;height:2px;background:var(--accent);content:""}
+  .workflow a:first-child.is-current:after{left:0}
+  .workflow-no{color:#929a91;font-size:10px;font-variant-numeric:tabular-nums;letter-spacing:.04em}
+  .workflow a.is-current .workflow-no{color:var(--accent)}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:24px 26px;margin-bottom:15px;box-shadow:0 1px 2px rgba(38,51,47,.025);scroll-margin-top:18px}
+  h2{font-size:16px;font-weight:650;letter-spacing:-.01em;margin:0 0 19px;display:flex;align-items:baseline;gap:11px}
+  h2 .n{display:inline-flex;align-items:center;justify-content:center;color:#8b968d;font:600 10px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:.08em;flex:none}
+  label{display:block;font-size:12px;font-weight:600;color:#4f5d55;margin-bottom:6px}
   input[type=text],input[type=password],input[type=url],input[type=number],select,textarea{
-    width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:6px;
-    color:var(--text);padding:8px 10px;font:inherit;outline:none}
-  input:focus,select:focus,textarea:focus{border-color:var(--accent)}
-  textarea{resize:vertical;min-height:70px}
-  .row{display:flex;gap:10px;flex-wrap:wrap}
+    width:100%;min-height:40px;background:#fff;border:1px solid #dcded5;border-radius:5px;
+    color:var(--text);padding:8px 11px;font:inherit;outline:none;transition:border-color 120ms ease-out,box-shadow 120ms ease-out}
+  input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--focus)}
+  input[type=checkbox]{accent-color:var(--accent)}
+  textarea{resize:vertical;min-height:82px;line-height:1.55}
+  .row{display:flex;gap:15px;flex-wrap:wrap}
   .row>div{flex:1;min-width:160px}
-  button{background:var(--accent);border:none;color:#fff;border-radius:6px;padding:9px 16px;font:inherit;font-weight:600;cursor:pointer}
+  button{background:var(--accent);border:1px solid var(--accent);color:#fff;border-radius:5px;min-height:39px;padding:8px 14px;font:inherit;font-size:13px;font-weight:650;cursor:pointer;transition:transform 140ms ease-out,background-color 140ms ease-out,box-shadow 140ms ease-out}
   button:disabled{opacity:.45;cursor:not-allowed}
-  button.ghost{background:var(--panel2);border:1px solid var(--line);color:var(--text)}
+  button.ghost{background:#fff;border:1px solid #d8dcd4;color:var(--text)}
   button.green{background:var(--accent2)}
-  button.small{padding:5px 10px;font-size:12.5px}
-  .status{font-size:12.5px;color:var(--dim);margin-top:8px;white-space:pre-wrap}
+  button.small{min-height:32px;padding:5px 10px;font-size:12px}
+  button:active:not(:disabled){transform:scale(.98)}
+  button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,.importzone:focus-visible,.workflow a:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+  @media(hover:hover) and (pointer:fine){button:not(:disabled):hover{background:#294b40}button.ghost:not(:disabled):hover{background:#f5f5f0}}
+  .status{font-size:12px;color:var(--dim);margin-top:9px;white-space:pre-wrap}
   .status.err{color:var(--bad)} .status.ok{color:var(--accent2)}
   .checks{list-style:none;margin:8px 0 0;padding:0;font-size:12.5px}
   .checks li{padding:2px 0}
   .checks .bad{color:var(--bad)} .checks .warn{color:var(--warn)} .checks .good{color:var(--accent2)}
-  .hint{font-size:12px;color:var(--dim);margin-top:6px}
-  .cardbox{background:#fff;border-radius:8px;padding:26px 30px;color:#111;user-select:text;-webkit-user-select:text}
+  .hint{font-size:11.5px;color:var(--dim);margin-top:6px;line-height:1.5}
+  .cardbox{background:#fff;border:1px solid #e8e5de;border-radius:7px;padding:30px 34px;color:#111;user-select:text;-webkit-user-select:text}
   .cardbox .tag{font-family:Georgia,'Times New Roman',serif;font-style:italic;font-size:15pt;line-height:1.45;margin:0 0 6pt}
   .cardbox .cite{font-family:Georgia,'Times New Roman',serif;font-size:10.5pt;line-height:1.35;margin:0 0 8pt;word-break:break-word}
   .cardbox .bodyp{font-family:Georgia,'Times New Roman',serif;font-size:9pt;line-height:1.55;margin:0 0 10pt}
@@ -89,22 +108,44 @@
   .w.s1{text-decoration:underline}
   .w.tagw{font-style:italic}
   .w.tagu{text-decoration:underline}
-  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
-  .toolbar .lbl{font-size:12px;color:var(--dim)}
-  .verdict{margin:10px 0 0;padding:10px 12px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;font-size:13px}
+  .toolbar{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin:15px 0 10px}
+  .toolbar .lbl{font-size:11.5px;color:var(--dim)}
+  .verdict{margin:12px 0 0;padding:13px 15px;background:#f7f7f1;border:1px solid var(--line);border-radius:5px;font-size:13px}
   .verdict .sup{font-weight:700}
   .verdict .sup.supports{color:var(--accent2)} .verdict .sup.mixed{color:var(--warn)} .verdict .sup.unsupported{color:var(--bad)}
-  .readbox{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:10px 12px;font-family:Georgia,serif;font-size:13px;margin-top:10px;max-height:180px;overflow:auto;white-space:pre-wrap}
+  .readbox{background:#faf9f5;border:1px solid var(--line);border-radius:5px;padding:12px 14px;font-family:Georgia,serif;font-size:13px;margin-top:10px;max-height:220px;overflow:auto;white-space:pre-wrap}
   .hiddenfile{display:none}
-  .importzone{border:2px dashed var(--line);border-radius:8px;padding:12px;text-align:center;color:var(--dim);font-size:12.5px;cursor:text;outline:none;min-height:60px}
+  .importzone{border:1px dashed #cfd3ca;border-radius:5px;padding:14px;text-align:center;color:var(--dim);font-size:12px;cursor:text;outline:none;min-height:66px;background:#faf9f5}
   .importzone:focus{border-color:var(--accent);color:var(--text)}
-  details{margin-top:10px} details summary{cursor:pointer;color:var(--dim);font-size:12.5px}
-  .footer{color:var(--dim);font-size:11.5px;line-height:1.6;margin-top:6px}
-  a{color:#97b7ff}
+  details{margin-top:12px} details summary{cursor:pointer;color:#526158;font-size:12px;font-weight:600}
+  .footer{border-top:1px solid var(--line);color:var(--dim);font-size:11px;line-height:1.7;margin-top:22px;padding-top:16px}
+  a{color:#315f51}
+  .settings{margin-top:18px;padding:0 13px;border:1px solid var(--line);border-radius:5px;background:#faf9f5}
+  .settings summary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:41px;color:var(--text)}
+  .settings-summary{color:var(--dim);font-size:11px;font-weight:400;text-align:right}
+  .settings-content{padding:4px 0 14px}
+  .settings-content>.row{margin-top:10px}
+  .section-intro{margin:-10px 0 16px;color:var(--dim);font-size:12px}
+  .export-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-top:15px}
+  .review-confirm{margin-top:14px;display:flex;gap:9px;align-items:flex-start;cursor:pointer}
+  .review-confirm input{width:auto;min-height:0;margin:3px 0 0}
+  .review-confirm span{font-size:12px;line-height:1.5;color:#4f5d55}
+  .workspace-note{margin-top:12px}
   .status.warn{color:var(--warn)}
   .status,.bodyp{overflow-wrap:anywhere}
-  button:not(.ghost),h2 .n{color:#101820}
-  @media(max-width:600px){.wrap{padding:12px 10px 40px}section{padding:12px}.row>div{min-width:0!important;flex-basis:100%!important}.cardbox{padding:18px 16px}}
+  button:not(.ghost){color:#fff}
+  @media(prefers-reduced-motion:reduce){button,.workflow a{transition:none}html{scroll-behavior:auto}}
+  @media(max-width:680px){
+    .wrap{padding:18px 14px 40px}
+    .header-note{display:none}
+    .workflow{overflow-x:auto}
+    .workflow a{flex:none;gap:6px;padding:0 10px;font-size:11.5px}
+    .workflow a:first-child{padding-left:0}
+    section{padding:18px 16px}
+    .row>div{min-width:0!important;flex-basis:100%!important}
+    .cardbox{padding:20px 17px}
+    .settings-summary{max-width:48%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  }
   @media print{
     body{background:#fff}
     body *{visibility:hidden}
@@ -115,14 +156,27 @@
 </head>
 <body>
 <div class="wrap">
-<header>
-  <h1>Evidence Lab</h1>
-  <span class="sub">PF edition · v4.11 · Auto citation → flexible-length card. Full context stays between the read text.</span>
+<header class="app-header">
+  <div class="brandline">
+    <span class="brand-mark" aria-hidden="true">EL</span>
+    <div class="brand-copy">
+      <p class="eyebrow">PUBLIC FORUM · EVIDENCE WORKSPACE</p>
+      <h1>Evidence Lab</h1>
+    </div>
+    <p class="header-note">Build source-faithful cards, one check at a time.</p>
+  </div>
+  <nav class="workflow" aria-label="Card cutting workflow">
+    <a class="is-current" href="#sourceSection" aria-current="step"><span class="workflow-no">01</span> Source</a>
+    <a href="#citationSection"><span class="workflow-no">02</span> Citation</a>
+    <a href="#analysisSection"><span class="workflow-no">03</span> Analyze</a>
+    <a href="#cardSection"><span class="workflow-no">04</span> Review</a>
+  </nav>
 </header>
 
 <!-- ============ 1. SOURCE ============ -->
-<section>
-  <h2><span class="n">1</span> Get the article</h2>
+<section id="sourceSection">
+  <h2><span class="n">01</span> Source</h2>
+  <p class="section-intro">Start with the original article or the card you already cut.</p>
   <div class="row">
     <div style="flex:3;min-width:260px">
       <label for="urlInput">Article URL (paste to fetch + find citation automatically)</label>
@@ -147,7 +201,7 @@
   <div class="status" id="fetchStatus"></div>
   <div class="row" style="margin-top:12px">
     <div style="flex:1">
-      <label for="pasteArea">Or paste the article text (always works — even for paywalled or consent-gated pages)</label>
+      <label for="pasteArea">Or paste article text (up to 250,000 characters; works for pages you can access)</label>
       <textarea id="pasteArea" rows="4" placeholder="Copy the article body from your browser and paste it here…"></textarea>
       <button class="ghost small" id="usePasteBtn" style="margin-top:6px">Use pasted text</button>
     </div>
@@ -164,8 +218,9 @@
 </section>
 
 <!-- ============ 2. CITATION ============ -->
-<section>
-  <h2><span class="n">2</span> Citation</h2>
+<section id="citationSection">
+  <h2><span class="n">02</span> Citation</h2>
+  <p class="section-intro">Keep each field tied to what the source actually states.</p>
   <div class="row">
     <div><label for="cFirst">Author first name</label><input type="text" id="cFirst"></div>
     <div><label for="cLast">Author last name</label><input type="text" id="cLast"></div>
@@ -184,7 +239,7 @@
   <div class="status" id="citePreview"></div>
   <div class="checks" id="citeChecks"></div>
   <div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-    <button class="ghost small" id="aiCiteBtn">AI: find citation info</button>
+    <button class="ghost small" id="aiCiteBtn">Find citation details</button>
     <span class="hint" style="margin-top:0">Fills empty author / date / publication / qualifications fields by reading the article. Always verify the result against the source.</span>
   </div>
   <div class="status" id="citeAiStatus"></div>
@@ -192,11 +247,12 @@
 </section>
 
 <!-- ============ 3. ANALYSIS ============ -->
-<section>
-  <h2><span class="n">3</span> Analyze & cut</h2>
+<section id="analysisSection">
+  <h2><span class="n">03</span> Find the evidence</h2>
+  <p class="section-intro">Test a claim against the article—or leave it blank to find the article’s strongest supported point.</p>
   <div class="row">
     <div style="flex:2;min-width:260px">
-      <label for="argInput">Claim to test (optional: leave blank to select the article's strongest supported point)</label>
+      <label for="argInput">Claim to test <span style="font-weight:400;color:var(--dim)">(optional)</span></label>
       <textarea id="argInput" rows="3" placeholder="e.g. The US refuses to join the TPNW and is modernizing its nuclear arsenal instead of disarming"></textarea>
     </div>
     <div>
@@ -209,31 +265,36 @@
       </select>
     </div>
   </div>
-  <div class="row" style="margin-top:10px">
-    <div>
-      <label for="engineSel">AI engine</label>
-      <select id="engineSel">
-        <option value="gemini">Gemini — free key (AI Studio)</option>
-        <option value="groq" selected>Groq — your API key</option>
-        <option value="puter">Puter — no key (your own account)</option>
-        <option value="local">Local — WebLLM (offline, weakest)</option>
-      </select>
+  <details class="settings">
+    <summary><span>Provider & model</span><span class="settings-summary" id="engineSummary">Choose how analysis runs</span></summary>
+    <div class="settings-content">
+      <div class="row">
+        <div>
+          <label for="engineSel">AI provider</label>
+          <select id="engineSel">
+            <option value="gemini">Gemini — API key</option>
+            <option value="groq" selected>Groq — API key</option>
+            <option value="puter">Puter — account sign-in</option>
+            <option value="local">Local — WebGPU</option>
+          </select>
+        </div>
+        <div>
+          <label for="modelSel">Model</label>
+          <select id="modelSel"></select>
+        </div>
+        <div>
+          <label for="customModel">Custom model ID <span style="font-weight:400;color:var(--dim)">(optional)</span></label>
+          <input type="text" id="customModel" placeholder="Used when Model = Custom…" spellcheck="false">
+        </div>
+      </div>
+      <div class="row" id="keyRow">
+        <div style="flex:2"><label for="aiKey" id="aiKeyLabel">API key (never stored or saved)</label><input type="password" id="aiKey" placeholder="Paste key — it stays in this tab only" spellcheck="false" autocomplete="off"></div>
+      </div>
+      <div class="hint" id="engineHint" style="margin-top:8px"></div>
     </div>
-    <div>
-      <label for="modelSel">Model</label>
-      <select id="modelSel"></select>
-    </div>
-    <div>
-      <label for="customModel">Custom model ID (optional)</label>
-      <input type="text" id="customModel" placeholder="used when Model = Custom…" spellcheck="false">
-    </div>
-  </div>
-  <div class="row" id="keyRow" style="margin-top:10px">
-    <div style="flex:2"><label for="aiKey" id="aiKeyLabel">API key (never stored or saved)</label><input type="password" id="aiKey" placeholder="paste key — it stays in this tab only" spellcheck="false" autocomplete="off"></div>
-  </div>
-  <div class="hint" id="engineHint" style="margin-top:0"></div>
+  </details>
   <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-    <button id="analyzeBtn" class="green">Analyze & cut</button>
+    <button id="analyzeBtn" class="green">Find evidence & build card</button>
     <button id="clearFmtBtn" class="ghost">Clear all formatting</button>
   </div>
   <div class="status" id="aiStatus" role="status" aria-live="polite"></div>
@@ -243,7 +304,8 @@
 
 <!-- ============ 4. CARD ============ -->
 <section id="cardSection">
-  <h2><span class="n">4</span> Card</h2>
+  <h2><span class="n">04</span> Review & export</h2>
+  <p class="section-intro">Every word in the selected passage stays in the card. Check the citation and context against the original before exporting.</p>
   <div class="row">
     <div style="flex:2;min-width:260px">
       <label for="tagInput">Tag (the claim you read before the card)</label>
@@ -262,16 +324,17 @@
     <button class="small ghost" id="fmtPlain">Plain</button>
     <span class="lbl">— select exact letters, or click a word to cycle: plain → read → underline.</span>
   </div>
+  <div class="hint">AI highlighting controls what is read aloud; it does not delete the other words. Copy, download, and print preserve every word in the selected paragraph range as context. Keep the original article available too, and check your tournament's evidence-disclosure rules.</div>
   <div class="cardbox" id="cardPreview">
     <p style="color:#888;font-family:Arial,sans-serif;font-size:12px;margin:0">No card yet — fetch an article and run Analyze & cut, or paste an existing card above.</p>
   </div>
-  <label class="hint" style="margin-top:10px;display:flex;gap:8px;align-items:flex-start;cursor:pointer">
-    <input type="checkbox" id="reviewCheck" style="width:auto;margin-top:2px">
-    I have compared this card against the original source, the quotation is accurate and in context, and the citation is complete.
+  <label class="review-confirm">
+    <input type="checkbox" id="reviewCheck">
+    <span>I compared the quotation with the original, checked its context, and verified the citation.</span>
   </label>
   <div class="checks" id="cardChecks"></div>
-  <div class="row" style="margin-top:14px;flex-wrap:wrap">
-    <button id="copyRich">Copy card (formatted)</button>
+  <div class="export-toolbar">
+    <button id="copyRich">Copy formatted card</button>
     <button class="ghost" id="copyPlain">Copy plain text</button>
     <button class="ghost" id="dlHtml">Download HTML</button>
     <button class="ghost" id="dlRtf">Download RTF</button>
@@ -286,7 +349,7 @@
     <div class="readbox" id="readAloud"></div>
   </details>
   <details>
-    <summary>Abbreviation, coherence and nonfatal review notes</summary>
+    <summary>Warrant, source support and review notes</summary>
     <div class="readbox" id="warrantAudit" style="max-height:320px"></div>
   </details>
   <details>
@@ -297,7 +360,7 @@
 
 <div class="footer">
   <strong>Integrity:</strong> read text can come from separated sentences across any number of paragraphs. All intervening source text remains in smaller type, in original order. No generated evidence is inserted. Review qualifications, negations, citation and author intent before use. Your tournament or team may restrict AI assistance.
-  <br>Workflow reference: <a href="https://www.speechanddebate.org/wp-content/uploads/Handout-How-to-Cut-Cards.docx" target="_blank" rel="noopener">NSDA: How to Cut Cards</a>. The green/italic font treatment is your requested style, not a universal PF rule.
+  <br>Workflow reference: <a href="https://www.speechanddebate.org/wp-content/uploads/Handout-How-to-Cut-Cards.docx" target="_blank" rel="noopener">NSDA: How to Cut Cards</a>. This is instructional guidance, not a universal tournament evidence rule; check the current rules for your event. The green/italic font treatment is a display choice, not a universal PF rule.
   <br><strong>Privacy:</strong> local AI runs entirely in your browser. Jina Reader mode sends the article URL to r.jina.ai. Puter mode sends the article and your claim to the model provider through your own free Puter account. Groq/Gemini modes send them to that provider using your key. API keys are never stored, saved, or exported — they stay in this tab.
 </div>
 </div>
@@ -326,10 +389,6 @@ function paragraphRanges(text){
     re.lastIndex=m.index+m[0].length;
   }
   return paras;
-}
-function paraOfWord(word,paras){
-  for(let i=0;i<paras.length;i++) if(word.start<paras[i].end) return i;
-  return paras.length-1;
 }
 // Group word indices into contiguous runs of equal formatting state.
 function runsFrom(fmt,from,to){
@@ -372,6 +431,7 @@ function isJunkLine(line){
 function stripJunkLines(text){
   return text.split("\n").filter(l=>!isJunkLine(l)).join("\n");
 }
+const MAX_SOURCE_CHARS=250000;
 // Whitespace normalization only — safe for manually pasted evidence, imported
 // cards, and saved projects (nothing is ever deleted from an accepted source).
 function normalizeSource(raw){
@@ -506,7 +566,12 @@ function resetCardState(){
   S.tag=""; S.tagU=[]; S.ai=null; S._aiCite=[];
 }
 function setSource(text,meta,opts){
-  const next=normalizeSource(opts&&opts.cleanFetched?stripJunkForFetch(text):text);
+  const raw=String(text==null?"":text);
+  if(raw.length>MAX_SOURCE_CHARS){
+    setStatus("fetchStatus","Source is "+raw.length.toLocaleString()+" characters; the safe limit is "+MAX_SOURCE_CHARS.toLocaleString()+". Paste the relevant article sections instead. Your current card was not changed.","err");
+    return false;
+  }
+  const next=normalizeSource(opts&&opts.cleanFetched?stripJunkForFetch(raw):raw);
   if(!next||!tokenize(next).length){
     setStatus("fetchStatus","No usable text found.","err"); return false;
   }
@@ -832,24 +897,28 @@ async function fetchArticleInner(){
 }
 
 /* ---------- excerpt + rendering ---------- */
+function wordIndexAtOrAfter(position){
+  let low=0,high=S.words.length;
+  while(low<high){
+    const mid=(low+high)>>>1;
+    if(S.words[mid].start<position)low=mid+1;else high=mid;
+  }
+  return low;
+}
 function excerptWordBounds(){
   if(!S.words.length||!S.paras.length) return null;
   const p0=Math.max(0,Math.min(S.excerptStart,S.paras.length-1));
   const p1=Math.max(p0,Math.min(S.excerptEnd,S.paras.length-1));
-  let from=S.words.length,to=-1;
-  for(let i=0;i<S.words.length;i++){
-    const p=paraOfWord(S.words[i],S.paras);
-    if(p>=p0&&p<=p1){ if(i<from)from=i; to=i; }
-  }
-  if(to<from) return null;
+  const from=wordIndexAtOrAfter(S.paras[p0].start);
+  const to=wordIndexAtOrAfter(S.paras[p1].end)-1;
+  if(from>=S.words.length||to<from) return null;
   return{from,to,p0,p1};
 }
 function wordsOfParagraph(p,b){
-  let first=-1,last=-1;
-  for(let i=b.from;i<=b.to;i++){
-    if(paraOfWord(S.words[i],S.paras)===p){ if(first<0)first=i; last=i; }
-  }
-  return first<0?null:[first,last];
+  if(!S.paras[p])return null;
+  const first=Math.max(b.from,wordIndexAtOrAfter(S.paras[p].start));
+  const last=Math.min(b.to,wordIndexAtOrAfter(S.paras[p].end)-1);
+  return first>last?null:[first,last];
 }
 // Build the card as self-contained HTML with inline styles (paste-safe:
 // no classes, explicit fonts, black text on white, green highlight).
@@ -913,14 +982,15 @@ function acronymPairs(){
  }return pairs;
 }
 function canonicalizeCut(cut){
- const b=excerptWordBounds(),selected=new Set(readIds(cut)),aliases={};
+ const b=excerptWordBounds(),selected=new Set(readIds(cut)),aliases={},protectedWarrant=new Set();
+ if(cut.warrantWords&&cut.warrantWords.length)for(const sentence of excerptSentences())if(cut.warrantWords.some(id=>id>=sentence.from+1&&id<=sentence.to+1))for(let id=sentence.from+1;id<=sentence.to+1;id++)protectedWarrant.add(id);
  const remove=id=>{cut.readWords=cut.readWords.filter(n=>n!==id);cut.partialWords=cut.partialWords.filter(p=>p.word!==id);selected.delete(id);};
  const full=id=>{remove(id);cut.readWords.push(id);selected.add(id);},partial=(id,text)=>{remove(id);cut.partialWords.push({word:id,text});selected.add(id);};
- for(const pair of acronymPairs())if(pair.acronymId>=b.from+1&&pair.acronymId<=b.to+1&&(selected.has(pair.acronymId)||pair.content.filter(id=>selected.has(id)).length>=2)){for(const id of pair.expanded){aliases[id]=pair.acronymId;remove(id);}full(pair.acronymId);}
- for(let i=b.from;i<b.to;i++)for(const name of INITIAL_NAMES)if(lexicalCore(i)===name[0]&&lexicalCore(i+1)===name[1]&&selected.has(i+1)&&selected.has(i+2)){partial(i+1,name[0][0]);partial(i+2,name[1][0]);}
+ for(const pair of acronymPairs())if(!pair.expanded.some(id=>protectedWarrant.has(id))&&pair.acronymId>=b.from+1&&pair.acronymId<=b.to+1&&(selected.has(pair.acronymId)||pair.content.filter(id=>selected.has(id)).length>=2)){for(const id of pair.expanded){aliases[id]=pair.acronymId;remove(id);}full(pair.acronymId);}
+ for(let i=b.from;i<b.to;i++)for(const name of INITIAL_NAMES)if(!protectedWarrant.has(i+1)&&!protectedWarrant.has(i+2)&&lexicalCore(i)===name[0]&&lexicalCore(i+1)===name[1]&&selected.has(i+1)&&selected.has(i+2)){partial(i+1,name[0][0]);partial(i+2,name[1][0]);}
  const offset=S.words[b.from].start,span=S.sourceText.slice(offset,S.words[b.to].end),re=/\b([A-Z][a-z]+)\s+and\s+([A-Z][a-z]+)\s+(administrations?)\b/g;let m;
- while((m=re.exec(span))){const positions=[offset+m.index,offset+m.index+m[0].indexOf(m[2],m[1].length),offset+m.index+m[0].lastIndexOf(m[3])],ids=positions.map(p=>S.words.findIndex(w=>w.start===p)+1);if(ids.every(Boolean)&&selected.has(ids[0])&&selected.has(ids[1]))remove(ids[2]);}
- for(const id of [...selected]){if(/^[\u2014\u2013]$/.test(S.sourceText.slice(S.words[id-1].start,S.words[id-1].end))){remove(id);continue;}const safe=fallbackPartial(id);if(safe)partial(id,safe);}
+ while((m=re.exec(span))){const positions=[offset+m.index,offset+m.index+m[0].indexOf(m[2],m[1].length),offset+m.index+m[0].lastIndexOf(m[3])],ids=positions.map(p=>S.words.findIndex(w=>w.start===p)+1);if(ids.every(Boolean)&&!ids.some(id=>protectedWarrant.has(id))&&selected.has(ids[0])&&selected.has(ids[1]))remove(ids[2]);}
+ for(const id of [...selected]){if(protectedWarrant.has(id))continue;if(/^[\u2014\u2013]$/.test(S.sourceText.slice(S.words[id-1].start,S.words[id-1].end))){remove(id);continue;}const safe=fallbackPartial(id);if(safe)partial(id,safe);}
  cut.readWords=[...new Set(cut.readWords)].sort((a,b)=>a-b);cut.partialWords.sort((a,b)=>a.word-b.word);const final=new Set(readIds(cut));cut.underlineWords=[...new Set(cut.underlineWords)].filter(id=>!final.has(id)).sort((a,b)=>a-b);
  if(cut.groundsWords)for(const key of ['groundsWords','warrantWords','claimWords'])cut[key]=[...new Set(cut[key].map(id=>aliases[id]||id))].filter(id=>final.has(id)).sort((a,b)=>a-b);
  if(cut.fillerExceptions)cut.fillerExceptions=cut.fillerExceptions.map(e=>({...e,wordIds:e.wordIds.filter(id=>final.has(id))})).filter(e=>e.wordIds.length);return cut;
@@ -1012,9 +1082,9 @@ function renderPreview(){
     if(i>0) tagP.appendChild(document.createTextNode(" "));
     const sp=document.createElement("span");
     sp.className="w tagw"+(S.tagU[i]?" tagu":"");
+    sp.dataset.tagi=i;
     sp.textContent=S.tag.slice(w.start,w.end);
     sp.title="click to underline";
-    sp.addEventListener("click",()=>{S.tagU[i]=!S.tagU[i];editedCard();});
     tagP.appendChild(sp);
   });
   box.appendChild(tagP);
@@ -1033,17 +1103,24 @@ function renderPreview(){
       const gap=i>range[0]?S.sourceText.slice(S.words[i-1].end,S.words[i].start):"";
       if(gap) pe.appendChild(document.createTextNode(gap));
       const sp=document.createElement("span");
-      sp.className="w";sp.dataset.wi=i;
-      charStates(i).forEach((state,k)=>{const ch=document.createElement("span");ch.className="w s"+state;ch.dataset.ci=k;ch.textContent=S.sourceText[S.words[i].start+k];sp.appendChild(ch);});
-      sp.addEventListener("click",()=>{
-        if(!window.getSelection().isCollapsed)return;
-        delete S.parts[i];S.fmt[i]=NEXT_STATE[S.fmt[i]|0];
-        editedCard();
-      });
+      sp.dataset.wi=i;
+      const partial=S.parts[i],length=S.words[i].end-S.words[i].start;
+      if(Array.isArray(partial)&&partial.length===length&&partial.some(state=>state!==partial[0])){
+        sp.className="w";
+        partial.forEach((state,k)=>{const ch=document.createElement("span");ch.className="w s"+state;ch.dataset.ci=k;ch.textContent=S.sourceText[S.words[i].start+k];sp.appendChild(ch);});
+      }else{
+        sp.className="w s"+(Array.isArray(partial)&&partial.length===length?partial[0]:S.fmt[i]|0);
+        sp.textContent=S.sourceText.slice(S.words[i].start,S.words[i].end);
+      }
       pe.appendChild(sp);
     }
     box.appendChild(pe);
   }
+}
+function textOffsetWithin(element,node,offset){
+  const prefix=document.createRange();
+  prefix.selectNodeContents(element);
+  try{prefix.setEnd(node,offset);return prefix.toString().length;}catch(e){return 0;}
 }
 // Apply a formatting state to the current text selection inside the card.
 function applyFormatToSelection(state){
@@ -1054,9 +1131,20 @@ function applyFormatToSelection(state){
   }
   const range=sel.getRangeAt(0);
   let changed=0;
-  $("cardPreview").querySelectorAll("span[data-ci]").forEach(sp=>{
+  $("cardPreview").querySelectorAll("span[data-wi]").forEach(sp=>{
     const probe=document.createRange();probe.selectNodeContents(sp);
-    if(range.compareBoundaryPoints(Range.END_TO_START,probe)<0&&range.compareBoundaryPoints(Range.START_TO_END,probe)>0){const i=+sp.parentElement.dataset.wi,k=+sp.dataset.ci,states=charStates(i);states[k]=state;S.parts[i]=states;S.fmt[i]=states.includes(2)?2:states.includes(1)?1:0;changed++;}
+    if(range.compareBoundaryPoints(Range.END_TO_START,probe)<0&&range.compareBoundaryPoints(Range.START_TO_END,probe)>0){
+      const i=+sp.dataset.wi,n=S.words[i].end-S.words[i].start;
+      const start=sp.contains(range.startContainer)?textOffsetWithin(sp,range.startContainer,range.startOffset):0;
+      const end=sp.contains(range.endContainer)?textOffsetWithin(sp,range.endContainer,range.endOffset):n;
+      const from=Math.max(0,Math.min(n,start)),to=Math.max(from,Math.min(n,end));
+      if(from===to)return;
+      const states=charStates(i);
+      for(let k=from;k<to;k++)states[k]=state;
+      S.fmt[i]=states.includes(2)?2:states.includes(1)?1:0;
+      if(states.every(value=>value===states[0]))delete S.parts[i];else S.parts[i]=states;
+      changed++;
+    }
   });
   if(changed&&S.ai&&S.ai.warrantReview)S.ai.warrantReview.stale=true;
   if(changed){ setStatus("copyStatus",""); $("reviewCheck").checked=false; }
@@ -1173,6 +1261,13 @@ function refreshEngineUI(){
     ?"Groq API key (free at console.groq.com — never stored)"
     :"Gemini API key (free at aistudio.google.com — never stored)";
   $("engineHint").textContent=ENGINE_HINTS[engine]||"";
+  updateEngineSummary();
+}
+function updateEngineSummary(){
+  const engine=$("engineSel"),model=$("modelSel"),custom=$("customModel").value.trim();
+  const provider=engine.selectedOptions[0]?engine.selectedOptions[0].textContent.split(" — ")[0]:engine.value;
+  const modelName=model.value==="__custom__"?(custom||"Custom model"):model.selectedOptions[0]?.textContent||"Default model";
+  $("engineSummary").textContent=provider+" · "+modelName;
 }
 let puterLoading=null;
 function ensurePuter(){
@@ -1395,7 +1490,7 @@ function pass1Prompt(arg,chunk,total,ci){
   return "STAGE 2: Select a passage for a "+($("eventSel").value||"Public Forum")+" evidence card.\n"+
     (arg?"Test this claim, without forcing agreement: "+arg:"No claim supplied. Identify this article's strongest specific supported argument.")+
     "\nArticle part "+(ci+1)+"/"+total+". IDs are ONE-BASED [P1], [P2], etc. Return those exact integers, never zero-based offsets.\n"+
-    "Find the minimum sufficient evidence for ONE coherent claim in this part, then select the span from the first useful paragraph to the last. There is NO paragraph-count limit: one paragraph is fine when sufficient; ten or more are fine when useful. The read-aloud sentences do NOT have to be consecutive. All intervening sentences and paragraphs will stay in the card as smaller unread context. Do not add unrelated paragraphs merely to lengthen a short card. Include only the shortest sufficient source-stated mechanism if causal. Descriptive who-did-what facts do not require extra causal paragraphs. Add paragraphs only for essential support or qualifications. Do not select bylines, menus or an author bio as evidence.\n"+
+    "Find the source passage that fully explains ONE coherent claim. Include the relevant evidence, source-stated reasoning/warrant, conclusion, attribution and material qualifications; do not stop at a result sentence if the explanation appears nearby. Choose the complete relevant paragraph span, including adjacent context needed to understand it. There is NO paragraph-count limit: use as many paragraphs as the source needs, but do not add unrelated material. The read-aloud sentences do NOT have to be consecutive; every word in the selected paragraphs remains in the card as context. Do not select bylines, menus or an author bio as evidence.\n"+
     "The tag is one short accurate claim (aim 7-15 words). Preserve uncertainty: 'may', correlation, limits, conditions and the author's position. Do not strengthen a claim just to sound persuasive.\n"+
     "support is supports, mixed, or unsupported relative to the supplied claim. If unsupported, select the nearest passage and an honest descriptive tag; do not fabricate support. reason explains the warrant and limitations. tagKeyPhrases must be exact substrings of the tag.\n"+
     "ARTICLE DATA:\n"+body;
@@ -1453,12 +1548,9 @@ function sentenceRangesInBlock(absStart,absEnd){
       i++;
     }
     if(end<0)end=n;
-    let w0=-1,w1=-1;
-    for(let w=0;w<S.words.length;w++){
-      const st=S.words[w].start;
-      if(st>=absStart+start&&st<absStart+end){if(w0<0)w0=w;w1=w;}
-    }
-    if(w0>=0)out.push({start,end,from:w0,to:w1,text:text.slice(start,end)});
+    const w0=wordIndexAtOrAfter(absStart+start);
+    const w1=wordIndexAtOrAfter(absStart+end)-1;
+    if(w0<=w1)out.push({start,end,from:w0,to:w1,text:text.slice(start,end)});
     i=Math.max(i,end);
   }
   return out;
@@ -1478,14 +1570,23 @@ function sentenceBatches(cap){
   return chunks;
 }
 
-const STYLE_POLICY="Select the shortest coherent low-syllable spoken argument: actors, action, essential object and only the necessary source-stated logical/causal bridge. Descriptive facts can support a descriptive tag without an extra causal mechanism; causal tags need the actual source-stated mechanism. Grounds/warrant/claim roles may overlap, not three separate speech quotas.\nOmit filler by default: administration labels after named actors, articles, auxiliaries, possessives, redundant conjunctions, duplicate names, background, optional examples and repeated conclusions. Formal grammar alone is insufficient. Telegraphic but immediately intelligible speech is expected. Keep negation, quantities/units, material conditions and attribution. User permits uncertainty-word omissions; warn when this strengthens the spoken claim.\nUse global WHOLE-WORD W IDs: readWords selects full tokens, partialWords selects {word:W_ID,text:EXACT approved substring}. Accidental overlap is normalized, with valid partials taking precedence. Use nuc from nuclear, chose from chosen, U/S from United States, constituent initials of United Nations/United Kingdom/European Union, or a valid singular from terminal s. No internal fragments (lear), no damaged names (Trum). All text must come from current source.\nIf an expanded name has its original parenthetical acronym, select ONLY the acronym: (TPNW), not its expanded name too. Named Trump and Biden already identify actors; administrations is redundant.\nCalibration ONLY, never inserted as current evidence: \u201cboth the Trump and Biden administrations have rebuffed the 2017 UN Treaty on the Prohibition of Nuclear Weapons (TPNW) and chosen instead to persist with current US policies to maintain and upgrade nuclear weapons\u201d can become \u201cboth Trump Biden rebuffed UN (TPNW) chose maintain upgrade nuc weapons\u201d. \u201cDialogue reduces misunderstandings, which helps groups cooperate\u201d can become \u201cDialogue reduces misunderstandings helps groups cooperate\u201d, NOT \u201cDialogue cooperate\u201d.\nFor each selected phrase, ask what essential fact/mechanism/condition or immediate comprehension disappears if removed. If nothing essential is lost, omit it. Stop once sufficient support is conveyed; no word quota. Multiple paragraphs are allowed when essential to one coherent claim. Filler feedback is a revision request, not a reason to abandon the card. Do not mechanically delete words that carry a necessary relationship. Keep the complete source visible and unchanged.\n";
+const SOURCE_FAITHFUL_POLICY="Prioritize source-faithful, intelligible evidence over brevity or low syllable count. Identify the grounds (what the source establishes), the source's warrant (why/how those grounds support the result), and the claim/result; their words may overlap. Preserve the complete source wording of every selected warrant sentence, including its logical connectors. Keep the relevant actors, actions, objects, attribution, negation, quantities/units, uncertainty, conditions and qualifications. Do not turn prose into telegraphic fragments, abbreviate words, or remove grammar that carries a relationship. Remove only truly redundant or unrelated material; there is no word or sentence quota.\nUse global WHOLE-WORD W IDs: readWords selects full tokens, partialWords selects {word:W_ID,text:EXACT approved substring}. All selected text must come from the current source. Do not invent a warrant: for direct descriptive facts, a separate causal mechanism is not required; when the source does not state the claimed mechanism, say so and flag the gap.\n";
 const REVIEW_SCHEMA=record({readWords:ids,partialWords:{type:'array',items:PART_SCHEMA},underlineWords:ids,reason:stringType,groundsWords:ids,warrantWords:ids,claimWords:ids,supportMode:{type:'string',enum:['direct_facts','mechanism','association']},warrantStatus:{type:'string',enum:['complete','partial','not_stated']},missingReason:stringType,chainExplanation:stringType,fillerExceptions:{type:'array',items:record({wordIds:ids,reason:stringType})},repairs:{type:'array',items:record({wordIds:ids,reason:stringType})}});
 function wordData(context){return context.map(sent=>'[S'+sent.id+'] '+S.words.slice(sent.from,sent.to+1).map((w,k)=>'[W'+(sent.from+k+1)+']'+JSON.stringify(S.sourceText.slice(w.start,w.end))).join(' ')).join('\n');}
-function pass2Prompt(arg,batch){return 'Cut compact source-supported evidence.\nClaim: '+arg+'\nTag: '+$('tagInput').value+'\n'+STYLE_POLICY+'\nReturn readWords, partialWords, underlineWords and reason. '+(batch?'Irrelevant batches can have no speech.':'Select a nonempty intelligible reading.')+'\nSOURCE:\n'+wordData(batch||excerptSentences());}
+function pass2Prompt(arg,batch){return 'Select source text to read aloud, preserving the complete evidence-to-warrant-to-claim reasoning and material qualifications. Do not optimize for shortest wording.\nClaim: '+arg+'\nTag: '+$('tagInput').value+'\n'+SOURCE_FAITHFUL_POLICY+'\nReturn readWords, partialWords, underlineWords and reason. '+(batch?'Irrelevant batches can have no speech.':'Select a nonempty intelligible reading.')+'\nSOURCE:\n'+wordData(batch||excerptSentences());}
 function validateReview(obj,allowed,allowEmpty,previous){
  // HARD CHECKS: only structural/source-selection validity may fail the request.
  checkedCut(obj,allowed,allowEmpty);const b=excerptWordBounds();
  for(const key of ['groundsWords','warrantWords','claimWords'])if(obj[key].some(id=>!Number.isInteger(id)||id<b.from+1||id>b.to+1||(allowed&&!allowed.has(id))))throw outputError(key+' references an out-of-range/unseen source word.');
+ const warrantWords=new Set(obj.warrantWords),requiredRead=new Set([...obj.groundsWords,...obj.warrantWords,...obj.claimWords]);
+ if(warrantWords.size){
+  for(const sentence of excerptSentences()){
+   if([...warrantWords].some(id=>id>=sentence.from+1&&id<=sentence.to+1))
+    for(let id=sentence.from+1;id<=sentence.to+1;id++)requiredRead.add(id);
+  }
+ }
+ obj.partialWords=obj.partialWords.filter(part=>!requiredRead.has(part.word));
+ obj.readWords=[...new Set([...obj.readWords,...requiredRead])];
  canonicalizeCut(obj);const selected=new Set(readIds(obj)),warnings=[];
  for(const key of ['groundsWords','warrantWords','claimWords'])obj[key]=[...new Set(obj[key])].filter(id=>selected.has(id)).sort((a,b)=>a-b);
  // SOFT CHECKS: quality concerns go forward to revision or become review notes.
@@ -1493,6 +1594,7 @@ function validateReview(obj,allowed,allowEmpty,previous){
  if(obj.warrantStatus==='complete'){
   if(!obj.groundsWords.length||!obj.claimWords.length)supportIssues.push('AI did not identify spoken grounds and claim clearly.');
   if(obj.supportMode==='mechanism'&&!obj.warrantWords.length)supportIssues.push('AI did not identify the necessary mechanism in highlighted words.');
+  if(obj.supportMode==='association'&&!obj.warrantWords.length)supportIssues.push('AI did not identify the source-stated association in highlighted words.');
   if(supportIssues.length){obj.warrantStatus='partial';obj.missingReason=supportIssues.join(' ');}
  }
  if(obj.warrantStatus!=='complete'&&!obj.missingReason.trim())obj.missingReason='AI support assessment is incomplete; check the highlighted reasoning against source.';
@@ -1515,23 +1617,27 @@ function validateReview(obj,allowed,allowEmpty,previous){
   obj.repairs=obj.repairs.map(r=>({...r,wordIds:r.wordIds.filter(id=>added.includes(id))})).filter(r=>r.wordIds.length);
   for(const r of obj.repairs)if(r.reason.trim().length>=20)r.wordIds.forEach(id=>justified.add(id));
   const unexplained=added.filter(id=>!justified.has(id));if(unexplained.length)warnings.push('Review final additions for necessity: '+unexplained.map(id=>'W'+id).join(', ')+'.');
-  if(previous.supportMode==='mechanism'&&obj.supportMode!=='mechanism'){obj.supportMode='mechanism';if(!obj.warrantWords.length){obj.warrantStatus='partial';obj.missingReason='Causal mechanism needs verification in the final reading.';}warnings.push('Causal support mode retained; verify the actual mechanism.');}
+  if(['mechanism','association'].includes(previous.supportMode)&&obj.supportMode!==previous.supportMode){
+   obj.supportMode=previous.supportMode;
+   if(!obj.warrantWords.length){obj.warrantStatus='partial';obj.missingReason=previous.supportMode==='mechanism'?'Causal mechanism needs verification in the final reading.':'Source-stated association needs verification in the final reading.';}
+   warnings.push(previous.supportMode==='mechanism'?'Causal support mode retained; verify the actual mechanism.':'Association support mode retained; verify the source-stated relationship.');
+  }
  }
  obj.styleWarnings=[...new Set(warnings)];return obj;
 }
 function reviewPrompt(arg,draft,context,final){
  const candidates=selectedFillers(draft).map(id=>({id,word:S.sourceText.slice(S.words[id-1].start,S.words[id-1].end)}));
- return (final?'FINAL COHERENCE AND FILLER REVIEW: revise the reading; do not abandon it.':'REPAIR ONLY ESSENTIAL SUPPORT, THEN COMPRESS.')+'\nClaim: '+arg+'\nTag: '+S.tag+'\nEXACT DRAFT SPEECH:\n'+spokenCut(draft)+'\nDraft selection: '+JSON.stringify({readWords:draft.readWords,partialWords:draft.partialWords})+'\nFILLER CANDIDATES TO RECONSIDER: '+JSON.stringify(candidates)+'\nPRIOR REVIEW NOTES: '+JSON.stringify(draft.styleWarnings||[])+'\n'+STYLE_POLICY+
- '\nRead the entire green-only sequence. Remove optional filler/syllables; keep necessary actors, action/object and source-stated mechanism. Do not restore full sentences for literary grammar. Return complete arrays. Role IDs refer to spoken full/partial words and may overlap. Direct descriptive facts need no extra causal mechanism. fillerExceptions explains a SPECIFIC indispensable relationship when retaining a filler word; otherwise remove it. repairs explains any minimal final addition/expansion and its concrete purpose. These diagnostics are not speech. Flag actual missing reasoning instead of inventing it.\nSOURCE CONTEXT:\n'+wordData(context);
+ return (final?'FINAL COHERENCE AND WARRANT REVIEW: keep the complete source-stated reasoning and qualifications.':'RESTORE ANY MISSING GROUNDS, WARRANT, CLAIM, OR QUALIFICATIONS; preserve readable wording.')+'\nClaim: '+arg+'\nTag: '+S.tag+'\nEXACT DRAFT SPEECH:\n'+spokenCut(draft)+'\nDraft selection: '+JSON.stringify({readWords:draft.readWords,partialWords:draft.partialWords})+'\nFILLER CANDIDATES TO RECONSIDER: '+JSON.stringify(candidates)+'\nPRIOR REVIEW NOTES: '+JSON.stringify(draft.styleWarnings||[])+'\n'+SOURCE_FAITHFUL_POLICY+
+ '\nRead the entire green-only sequence. Do not shorten or fragment a source-stated warrant. Identify exact source IDs for grounds, warrant/reasoning and claim/result; role IDs may overlap. If the source states no warrant, say so rather than inventing one. Direct descriptive facts need no extra causal mechanism. Return complete arrays. fillerExceptions explains a specific indispensable relationship; repairs explains any added source words and their purpose. These diagnostics are not speech. Flag actual missing reasoning.\nSOURCE CONTEXT:\n'+wordData(context);
 }
-function mergeCuts(parts){const out={readWords:[],partialWords:[],underlineWords:[],reason:'',notes:[],styleWarnings:[],supportMode:parts.some(p=>readIds(p).length&&p.supportMode==='mechanism')?'mechanism':'direct_facts'};
- for(const p of parts){out.readWords.push(...p.readWords);out.partialWords.push(...p.partialWords);out.underlineWords.push(...p.underlineWords);out.notes.push(...(p.notes||[]));out.styleWarnings.push(...(p.styleWarnings||[]));}return canonicalizeCut(checkedCut(out));}
-function reviewScore(cut){return (cut.warrantStatus==='complete'?0:1000)+(cut.styleWarnings||[]).length*20+estimateSyllables(spokenCut(cut))*0.01;}
+function mergeCuts(parts){const out={readWords:[],partialWords:[],underlineWords:[],groundsWords:[],warrantWords:[],claimWords:[],reason:'',notes:[],styleWarnings:[],supportMode:parts.some(p=>readIds(p).length&&p.supportMode==='mechanism')?'mechanism':parts.some(p=>readIds(p).length&&p.supportMode==='association')?'association':'direct_facts'};
+ for(const p of parts){out.readWords.push(...p.readWords);out.partialWords.push(...p.partialWords);out.underlineWords.push(...p.underlineWords);out.groundsWords.push(...(p.groundsWords||[]));out.warrantWords.push(...(p.warrantWords||[]));out.claimWords.push(...(p.claimWords||[]));out.notes.push(...(p.notes||[]));out.styleWarnings.push(...(p.styleWarnings||[]));}return canonicalizeCut(checkedCut(out));}
+function reviewScore(cut){return (cut.warrantStatus==='complete'?0:1000)+(cut.styleWarnings||[]).length*20;}
 async function coherentCut(arg,cut){
  cut=canonicalizeCut(checkedCut(cut));const batches=sentenceBatches($('engineSel').value==='local'?6000:24000),parts=[];
  for(let i=0;i<batches.length;i++){
   const context=batches[i],allowed=new Set(context.flatMap(sent=>Array.from({length:sent.to-sent.from+1},(_,k)=>sent.from+k+1))),draft={...cut,readWords:cut.readWords.filter(id=>allowed.has(id)),partialWords:cut.partialWords.filter(p=>allowed.has(p.word))};
-  setStatus('aiStatus','Compact support review '+(i+1)+'/'+batches.length+' (style feedback is nonfatal)...','');
+  setStatus('aiStatus','Source-faithful support review '+(i+1)+'/'+batches.length+'...','');
   parts.push(await structured('Compact support '+(i+1),reviewPrompt(arg,draft,context,false),REVIEW_SCHEMA,j=>validateReview(j,allowed,batches.length>1)));
  }
  const merged=mergeCuts(parts),selected=new Set(readIds(merged)),all=excerptSentences(),keep=new Set();
@@ -1544,7 +1650,7 @@ async function coherentCut(arg,cut){
   try{
    setStatus('aiStatus','Targeted filler polish: reconsidering '+result.unresolvedFiller.map(f=>f.word).join(', ')+'...','');
    const polished=await structured('Optional filler polish',reviewPrompt(arg,result,context,true)+'\nTARGETED TASK: resolve these specific filler candidates without deleting necessary logic: '+JSON.stringify(result.unresolvedFiller),REVIEW_SCHEMA,j=>validateReview(j,allowed,false,result));
-   if(reviewScore(polished)<=reviewScore(result))result=polished;
+   if(reviewScore(polished)<reviewScore(result))result=polished;
   }catch(e){diagnostic('Optional filler polish unavailable; retained the valid card: '+safeError(e));result.styleWarnings.push('Optional filler polish did not complete; valid card retained for manual review.');}
  }
  return result;
@@ -1552,7 +1658,7 @@ async function coherentCut(arg,cut){
 function modalOmissionWarnings(cut){const selected=new Set(readIds(cut)),warnings=[];
  for(const sent of excerptSentences()){if(![...selected].some(id=>id>=sent.from+1&&id<=sent.to+1))continue;for(let i=sent.from;i<=sent.to;i++)if(/^(could|may|might|would|can|possibly|perhaps|potentially)$/i.test(lexicalCore(i))&&!selected.has(i+1))warnings.push('Uncertainty wording omitted: '+lexicalCore(i)+' (paragraph '+(sent.paragraph+1)+'). Spoken wording may sound stronger than the source.');}return [...new Set(warnings)];}
 function renderWarrantAudit(){const box=$('warrantAudit');if(!box)return;box.textContent='';const a=S.ai&&S.ai.warrantReview;
- if(!a){box.textContent='Analyze & cut checks compact wording, abbreviations and coherence. Style concerns become revision feedback, not fatal errors.';return;}
+ if(!a){box.textContent='Analyze & cut checks whether the spoken selection includes the source-stated grounds, warrant and claim. A separate causal warrant may not be stated for direct descriptive evidence.';return;}
  const add=(name,text)=>{const p=document.createElement('p');p.style.margin='5px 0';const b=document.createElement('strong');b.textContent=name+': ';p.appendChild(b);p.appendChild(document.createTextNode(text));box.appendChild(p);};
  add('AI support check',a.stale?'Out of date — edited; rerun analysis.':a.supportMode+' / '+a.warrantStatus+'; verify against source.');
  const actual=currentCut();add('Spoken size',readIds(actual).length+' source words; ~'+estimateSyllables(spokenCut(actual))+' estimated syllables.');
@@ -1802,7 +1908,7 @@ async function analyze(){
     renderAll();$("verdictBox").innerHTML=snap.verdict;$("verdictBox").style.display=snap.verdictDisplay;
   };
   try{
-    diagnostic("Evidence Lab v4.11 · "+engine+" · "+selectedModel());
+    diagnostic("Evidence Lab v4.12 · "+engine+" · "+selectedModel());
     setStatus("aiStatus","Stage 1/3: locating source-stated citation information...","");
     const notes=S.citationVersion===S.sourceVersion?["Reused the completed citation lookup for this source."]:await citationStage();
     renderAll();
@@ -1849,7 +1955,7 @@ async function analyze(){
     if(cut.warrantStatus!=="complete")S.ai.warnings.push("Support gap: "+cut.missingReason);
     const notes2=applyPass2(cut);
     showVerdict(notes.concat(cut.notes,notes2,cut.reason||"",...(cut.styleWarnings||[]),cut.warrantStatus!=="complete"?"Support gap: "+cut.missingReason:"AI coherent-reading check complete; verify against source."));
-    setStatus("aiStatus","Card cut: paragraphs "+(S.excerptStart+1)+"-"+(S.excerptEnd+1)+". Card created. "+(cut.warrantStatus!=="complete"||cut.styleWarnings.length?"Review notes are shown below; style feedback did not discard the card.":"Compact/coherent reading checked; compare with source."),cut.warrantStatus!=="complete"||cut.styleWarnings.length?"warn":"ok");
+    setStatus("aiStatus","Card cut: paragraphs "+(S.excerptStart+1)+"-"+(S.excerptEnd+1)+". Card created. "+(cut.warrantStatus!=="complete"||cut.styleWarnings.length?"Review notes are shown below; style feedback did not discard the card.":"Source-faithful reading checked; compare with source."),cut.warrantStatus!=="complete"||cut.styleWarnings.length?"warn":"ok");
   }catch(e){
     restore();
     setStatus("aiStatus","Analysis stopped: "+safeError(e)+" Your previous card and citation were preserved.","err");
@@ -1857,6 +1963,10 @@ async function analyze(){
 }
 /* ---------- card import (paste an existing card) ---------- */
 function importCardHTML(html){
+  if(String(html||"").length>MAX_SOURCE_CHARS){
+    setStatus("fetchStatus","Pasted card HTML exceeds the "+MAX_SOURCE_CHARS.toLocaleString()+"-character safe limit. Your current card was not changed.","err");
+    return;
+  }
   const doc=new DOMParser().parseFromString(html,"text/html");
   const stateOf=(el)=>{
     const tag=(el.tagName||"").toUpperCase();
@@ -2008,6 +2118,7 @@ function restoreProjectFormatting(p){
 function applyProjectData(p){
   try{
       if(!p||p.app!=="evidence-lab"||typeof p.source!=="string") throw new Error("not an Evidence Lab project");
+      if(p.source.length>MAX_SOURCE_CHARS) throw new Error("project source exceeds the "+MAX_SOURCE_CHARS.toLocaleString()+"-character safe limit");
       resetCardState();
       S._aiCite=Array.isArray(p.aiCite)?p.aiCite.filter(x=>typeof x==="string"):[];
       S.citationContext=typeof p.context==="string"?p.context:"";
@@ -2083,6 +2194,18 @@ $("importZone").addEventListener("paste",e=>{
     if(txt) importCardHTML(txt.split(/\n{2,}/).map(p=>"<p>"+esc(p)+"</p>").join(""));
   }
 });
+$("cardPreview").addEventListener("click",e=>{
+  const target=e.target instanceof Element?e.target:null;
+  if(!target)return;
+  const tag=target.closest("[data-tagi]");
+  if(tag&&$("cardPreview").contains(tag)){
+    const i=+tag.dataset.tagi;S.tagU[i]=!S.tagU[i];editedCard();return;
+  }
+  const word=target.closest("[data-wi]");
+  if(word&&$("cardPreview").contains(word)&&window.getSelection().isCollapsed){
+    const i=+word.dataset.wi;delete S.parts[i];S.fmt[i]=NEXT_STATE[S.fmt[i]|0];editedCard();
+  }
+});
 FIELDS.forEach(id=>$(id).addEventListener("input",editedCard));
 $("pStart").addEventListener("input",editedCard);
 $("pEnd").addEventListener("input",editedCard);
@@ -2117,8 +2240,23 @@ function resumePendingCitation(){
   citationResumeTimer=setTimeout(()=>{if(S.pendingCitation&&!S.busy&&citationReady())aiFillCitation();},600);
 }
 $("engineSel").addEventListener("change",()=>{refreshEngineUI();resumePendingCitation();});
+$("modelSel").addEventListener("change",updateEngineSummary);
+$("customModel").addEventListener("input",updateEngineSummary);
 $("aiKey").addEventListener("input",()=>{if(S._keyEngine)S.keys[S._keyEngine]=$("aiKey").value;resumePendingCitation();});
 refreshEngineUI();
+const workflowSections=[...document.querySelectorAll(".workflow a")].map(link=>({link,section:$(link.hash.slice(1))})).filter(item=>item.section);
+if("IntersectionObserver" in window){
+  const workflowObserver=new IntersectionObserver(entries=>{
+    const current=entries.filter(entry=>entry.isIntersecting).sort((a,b)=>a.boundingClientRect.top-b.boundingClientRect.top)[0];
+    if(!current)return;
+    workflowSections.forEach(({link,section})=>{
+      const active=section===current.target;
+      link.classList.toggle("is-current",active);
+      if(active)link.setAttribute("aria-current","step");else link.removeAttribute("aria-current");
+    });
+  },{rootMargin:"-18% 0px -70% 0px",threshold:0});
+  workflowSections.forEach(({section})=>workflowObserver.observe(section));
+}
 $("cDoa").value=todayMDY();
 $("cInitials").value="wc";
 renderAll();
